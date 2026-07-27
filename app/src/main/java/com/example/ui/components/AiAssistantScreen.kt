@@ -87,6 +87,7 @@ import com.example.util.DiagnosticUtil
 import com.example.ui.components.DiagnosticPanel
 import androidx.compose.material.icons.filled.Analytics
 import com.example.engine.agent.AgentStepStatus
+import com.example.engine.agent.AgentState
 import com.example.engine.inference.GenerationProgress
 
 data class CodeSegment(

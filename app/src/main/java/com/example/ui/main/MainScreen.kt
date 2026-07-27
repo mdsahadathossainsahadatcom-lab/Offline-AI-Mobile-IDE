@@ -33,6 +33,7 @@ import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Smartphone
 import com.example.ui.components.DiagnosticPanel
 import com.example.util.DiagnosticUtil
 import androidx.compose.material3.AlertDialog
@@ -379,7 +380,6 @@ fun MainScreen(viewModel: IdeViewModel) {
         ) {
             Scaffold(
                 modifier = Modifier.fillMaxSize(),
-                contentWindowInsets = WindowInsets(0, 0, 0, 0),
                 topBar = {
                     Card(
                         modifier = Modifier
