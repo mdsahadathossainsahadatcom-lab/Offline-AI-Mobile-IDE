@@ -20,14 +20,27 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Surface
+import androidx.compose.material.icons.filled.Stop
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.ime
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Chat
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Description
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.material.icons.filled.FileOpen
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Send
@@ -90,6 +103,9 @@ import com.example.engine.agent.AgentStepStatus
 import com.example.engine.agent.AgentState
 import com.example.engine.inference.GenerationProgress
 
+import com.example.engine.inference.AiProviderMode
+import com.example.engine.inference.AiProviderSettings
+
 data class CodeSegment(
     val isCodeBlock: Boolean,
     val text: String,
@@ -102,6 +118,7 @@ fun AiAssistantScreen(
     selectedModel: ModelProfileEntity?,
     generationProgress: GenerationProgress?,
     isGenerating: Boolean,
+    allModels: List<ModelProfileEntity> = emptyList(),
     chatHistory: List<ChatHistoryEntity> = emptyList(),
     chatSessions: List<ChatSessionEntity> = emptyList(),
     activeSessionId: Long? = null,
@@ -109,6 +126,7 @@ fun AiAssistantScreen(
     sessionAgentLogs: List<AgentLogEntity> = emptyList(),
     projectFilePaths: List<String> = listOf("index.html", "style.css", "script.js"),
     agentState: AgentState? = null,
+    aiProviderSettings: AiProviderSettings = AiProviderSettings(),
     onSendPrompt: (String) -> Unit,
     onRunAutonomousAgent: (String) -> Unit = {},
     onCancelAgent: () -> Unit = {},
@@ -117,7 +135,9 @@ fun AiAssistantScreen(
     onRenameSession: (ChatSessionEntity, String) -> Unit = { _, _ -> },
     onDeleteSession: (ChatSessionEntity) -> Unit = {},
     onExportSession: (ChatSessionEntity) -> Unit = {},
-    onApplyCodeToWorkspace: (String, String, Boolean) -> Unit = { _, _, _ -> }
+    onApplyCodeToWorkspace: (String, String, Boolean) -> Unit = { _, _, _ -> },
+    onSelectModel: (Long) -> Unit = {},
+    onImportGgufFile: (android.net.Uri) -> Unit = {}
 ) {
     var promptInput by remember { mutableStateOf("") }
     var isAgentMode by remember { mutableStateOf(true) }
@@ -126,12 +146,29 @@ fun AiAssistantScreen(
     var renameInputText by remember { mutableStateOf("") }
     var showDiagnosticPanel by remember { mutableStateOf(false) }
 
+    val localGgufPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            onImportGgufFile(uri)
+        }
+    }
+
     val sheetState = rememberModalBottomSheetState()
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
 
     val activeSessionName = remember(chatSessions, activeSessionId) {
         chatSessions.find { it.sessionId == activeSessionId }?.sessionName ?: "Chat Session"
+    }
+
+    val listState = rememberLazyListState()
+    val isImeVisible = WindowInsets.ime.asPaddingValues().calculateBottomPadding() > 0.dp
+
+    LaunchedEffect(sessionMessages.size, isImeVisible) {
+        if (sessionMessages.isNotEmpty()) {
+            listState.animateScrollToItem(sessionMessages.size - 1)
+        }
     }
 
     val diagnosticState = remember(generationProgress, isGenerating, showDiagnosticPanel) {
@@ -217,6 +254,48 @@ fun AiAssistantScreen(
             }
         }
 
+        // Active AI Engine Provider Badge
+        val engineBadgeText = remember(aiProviderSettings, selectedModel) {
+            if (aiProviderSettings.mode == AiProviderMode.CLOUD_API) {
+                "☁️ Cloud API: ${aiProviderSettings.cloudProvider.displayName} (${aiProviderSettings.cloudModelName})"
+            } else {
+                "🟢 Offline GGUF: ${selectedModel?.name ?: "Llama-3-8B"}"
+            }
+        }
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 8.dp)
+                .background(
+                    color = if (aiProviderSettings.mode == AiProviderMode.CLOUD_API)
+                        MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)
+                    else
+                        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
+                    shape = RoundedCornerShape(8.dp)
+                )
+                .padding(horizontal = 10.dp, vertical = 6.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = engineBadgeText,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = if (aiProviderSettings.mode == AiProviderMode.CLOUD_API) "HTTP REST API" else "100% Offline NDK",
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                )
+            }
+        }
+
         // Mode Switcher: Auto Agent Workflow vs Standard Code Prompt
         SingleChoiceSegmentedButtonRow(
             modifier = Modifier
@@ -280,6 +359,23 @@ fun AiAssistantScreen(
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     AssistChip(
+                        onClick = { localGgufPickerLauncher.launch(arrayOf("*/*")) },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Default.FileOpen,
+                                contentDescription = "Import GGUF File",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(14.dp)
+                            )
+                        },
+                        label = { Text("Import GGUF", fontSize = 10.sp) },
+                        colors = AssistChipDefaults.assistChipColors(
+                            containerColor = MaterialTheme.colorScheme.surface,
+                            labelColor = MaterialTheme.colorScheme.primary
+                        )
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    AssistChip(
                         onClick = { showDiagnosticPanel = !showDiagnosticPanel },
                         leadingIcon = {
                             Icon(
@@ -303,7 +399,9 @@ fun AiAssistantScreen(
             Spacer(modifier = Modifier.height(8.dp))
             DiagnosticPanel(
                 diagnosticState = diagnosticState,
-                isGenerating = isGenerating
+                isGenerating = isGenerating,
+                selectedModel = selectedModel,
+                generationProgress = generationProgress
             )
         }
 
@@ -419,6 +517,7 @@ fun AiAssistantScreen(
 
         // 4. Conversation & Code Output History (with One-Tap Code Injection Parser)
         LazyColumn(
+            state = listState,
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f),
@@ -637,7 +736,7 @@ fun AiAssistantScreen(
                                             modifier = Modifier.weight(1f)
                                         ) {
                                             Icon(
-                                                imageVector = Icons.Default.Chat,
+                                                imageVector = Icons.AutoMirrored.Filled.Chat,
                                                 contentDescription = "Session",
                                                 tint = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                                             )
@@ -732,46 +831,84 @@ fun AiAssistantScreen(
             )
         }
 
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(4.dp))
 
-        // 5. Prompt Bar Input
-        Row(
+        // 5. Polished Docked Prompt Bar Container
+        Surface(
             modifier = Modifier
                 .fillMaxWidth()
-                .navigationBarsPadding()
                 .imePadding(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.95f),
+            tonalElevation = 6.dp,
+            shadowElevation = 8.dp,
+            shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)
         ) {
-            OutlinedTextField(
-                value = promptInput,
-                onValueChange = { promptInput = it },
-                placeholder = { Text("Prompt offline GGUF model...", fontSize = 12.sp) },
-                modifier = Modifier.weight(1f),
-                singleLine = false,
-                maxLines = 3,
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = MaterialTheme.colorScheme.primary,
-                    unfocusedBorderColor = MaterialTheme.colorScheme.outline
-                )
-            )
-
-            Button(
-                onClick = {
-                    if (promptInput.isNotBlank() && !isGenerating) {
-                        if (isAgentMode) {
-                            onRunAutonomousAgent(promptInput)
-                        } else {
-                            onSendPrompt(promptInput)
-                        }
-                        promptInput = ""
-                    }
-                },
-                enabled = promptInput.isNotBlank() && !isGenerating,
-                shape = RoundedCornerShape(12.dp),
-                modifier = Modifier.height(52.dp)
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 10.dp, vertical = 8.dp)
             ) {
-                Icon(imageVector = Icons.Default.Send, contentDescription = "Generate")
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedTextField(
+                        value = promptInput,
+                        onValueChange = { promptInput = it },
+                        placeholder = {
+                            Text(
+                                text = if (isAgentMode) "Ask AI Agent to write app code..." else "Prompt model...",
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                            )
+                        },
+                        modifier = Modifier.weight(1f),
+                        singleLine = false,
+                        maxLines = 4,
+                        shape = RoundedCornerShape(24.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedContainerColor = MaterialTheme.colorScheme.surface,
+                            unfocusedContainerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.8f),
+                            focusedBorderColor = MaterialTheme.colorScheme.primary,
+                            unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)
+                        )
+                    )
+
+                    Button(
+                        onClick = {
+                            if (promptInput.isNotBlank() && !isGenerating) {
+                                if (isAgentMode) {
+                                    onRunAutonomousAgent(promptInput)
+                                } else {
+                                    onSendPrompt(promptInput)
+                                }
+                                promptInput = ""
+                            }
+                        },
+                        enabled = promptInput.isNotBlank() && !isGenerating,
+                        shape = CircleShape,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.primary,
+                            disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant
+                        ),
+                        modifier = Modifier.size(48.dp)
+                    ) {
+                        if (isGenerating) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(20.dp),
+                                color = MaterialTheme.colorScheme.onPrimary,
+                                strokeWidth = 2.dp
+                            )
+                        } else {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.Send,
+                                contentDescription = "Send",
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
+                }
             }
         }
     }

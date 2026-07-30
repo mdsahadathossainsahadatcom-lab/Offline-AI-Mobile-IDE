@@ -1,4 +1,5 @@
 import com.google.gms.googleservices.GoogleServicesPlugin.MissingGoogleServicesStrategy
+import java.util.Base64
 
 plugins {
   alias(libs.plugins.android.application)
@@ -25,17 +26,36 @@ android {
 
   signingConfigs {
     create("release") {
+      val keystoreBase64 = System.getenv("KEYSTORE_BASE64")
       val keystorePath = System.getenv("KEYSTORE_PATH") ?: "${rootDir}/my-upload-key.jks"
-      storeFile = file(keystorePath)
-      storePassword = System.getenv("STORE_PASSWORD")
-      keyAlias = "upload"
-      keyPassword = System.getenv("KEY_PASSWORD")
+      val storeFileObj = file(keystorePath)
+
+      if (!keystoreBase64.isNullOrBlank() && !storeFileObj.exists()) {
+        runCatching {
+          storeFileObj.parentFile?.mkdirs()
+          storeFileObj.writeBytes(Base64.getDecoder().decode(keystoreBase64.trim()))
+        }
+      }
+
+      val storePass = System.getenv("STORE_PASSWORD") ?: System.getenv("KEYSTORE_PASSWORD")
+      val alias = System.getenv("KEY_ALIAS") ?: "upload"
+      val keyPass = System.getenv("KEY_PASSWORD") ?: storePass
+
+      if (storeFileObj.exists() && !storePass.isNullOrBlank()) {
+        storeFile = storeFileObj
+        storePassword = storePass
+        keyAlias = alias
+        keyPassword = keyPass
+      }
     }
-    create("debugConfig") {
-      storeFile = file("${rootDir}/debug.keystore")
-      storePassword = "android"
-      keyAlias = "androiddebugkey"
-      keyPassword = "android"
+    val debugKeystoreFile = file("${rootDir}/debug.keystore")
+    if (debugKeystoreFile.exists()) {
+      create("debugConfig") {
+        storeFile = debugKeystoreFile
+        storePassword = "android"
+        keyAlias = "androiddebugkey"
+        keyPassword = "android"
+      }
     }
   }
 
@@ -44,9 +64,17 @@ android {
       isCrunchPngs = false
       isMinifyEnabled = false
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-      signingConfig = signingConfigs.getByName("release")
+      val releaseConfig = signingConfigs.findByName("release")
+      if (releaseConfig?.storeFile != null && releaseConfig.storeFile?.exists() == true) {
+        signingConfig = releaseConfig
+      }
     }
-    debug { signingConfig = signingConfigs.getByName("debugConfig") }
+    debug {
+      val customDebug = signingConfigs.findByName("debugConfig")
+      if (customDebug != null) {
+        signingConfig = customDebug
+      }
+    }
   }
   compileOptions {
     sourceCompatibility = JavaVersion.VERSION_11

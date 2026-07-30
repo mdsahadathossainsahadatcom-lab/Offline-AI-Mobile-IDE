@@ -7,7 +7,11 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.calculateEndPadding
+import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.ime
@@ -17,14 +21,20 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoAwesome
-import androidx.compose.material.icons.filled.Chat
+import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.filled.Code
+import androidx.compose.material.icons.filled.DarkMode
+import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FileDownload
@@ -58,6 +68,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.rememberSwipeToDismissBoxState
@@ -78,7 +89,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -88,6 +99,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.example.ui.components.AiAssistantScreen
 import com.example.ui.components.CodeEditorScreen
+import com.example.ui.components.GgufModelDropdownSelector
 import com.example.ui.components.LivePreviewScreen
 import com.example.ui.components.SettingsScreen
 import com.example.ui.components.WorkspaceDrawerScreen
@@ -119,13 +131,18 @@ fun MainScreen(viewModel: IdeViewModel) {
     val sessionMessages by viewModel.sessionMessages.collectAsState()
     val sessionAgentLogs by viewModel.sessionAgentLogs.collectAsState()
     val consoleLogs by viewModel.consoleLogs.collectAsState()
+    val terminalLogs by viewModel.terminalLogs.collectAsState()
     val viewportMode by viewModel.viewportMode.collectAsState()
     val memoryCheckResult by viewModel.memoryCheckResult.collectAsState()
     val lastAutoSaveTime by viewModel.lastAutoSaveTime.collectAsState()
+    val isAutoSaveEnabled by viewModel.isAutoSaveEnabled.collectAsState()
     val contextWindow by viewModel.contextWindow.collectAsState()
     val isHudEnabled by viewModel.isPerformanceHudEnabled.collectAsState()
     val importProgress by viewModel.importProgress.collectAsState()
     val agentState by viewModel.agentState.collectAsState()
+    val aiProviderSettings by viewModel.aiProviderSettings.collectAsState()
+    val isTestingCloudConnection by viewModel.isTestingCloudConnection.collectAsState()
+    val cloudTestResult by viewModel.cloudTestResult.collectAsState()
     var isFullScreenEditor by remember { mutableStateOf(false) }
 
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
@@ -180,6 +197,14 @@ fun MainScreen(viewModel: IdeViewModel) {
         }
     }
 
+    val ggufPickerLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.OpenDocument()
+    ) { uri: android.net.Uri? ->
+        if (uri != null) {
+            viewModel.importGgufModelUri(uri)
+        }
+    }
+
     LocalAiIdeTheme(ideTheme = activeTheme) {
         ModalNavigationDrawer(
             drawerState = drawerState,
@@ -193,6 +218,37 @@ fun MainScreen(viewModel: IdeViewModel) {
                             .fillMaxSize()
                             .padding(16.dp)
                     ) {
+                        // Local GGUF Model Selector in Sidebar Drawer
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("sidebar_gguf_model_card"),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Column(modifier = Modifier.padding(10.dp)) {
+                                Text(
+                                    text = "ACTIVE GGUF MODEL FILE",
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                                Spacer(modifier = Modifier.height(6.dp))
+                                GgufModelDropdownSelector(
+                                    models = allModels,
+                                    selectedModel = selectedModel,
+                                    onModelSelected = { viewModel.selectModelProfile(it) },
+                                    onImportRequested = { ggufPickerLauncher.launch(arrayOf("*/*")) },
+                                    label = "Select GGUF File",
+                                    showDetailsSupportingText = false
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(14.dp))
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                        Spacer(modifier = Modifier.height(14.dp))
+
                         // Drawer Header
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -314,7 +370,7 @@ fun MainScreen(viewModel: IdeViewModel) {
                                                     modifier = Modifier.weight(1f)
                                                 ) {
                                                     Icon(
-                                                        imageVector = Icons.Default.Chat,
+                                                        imageVector = Icons.AutoMirrored.Filled.Chat,
                                                         contentDescription = "Session",
                                                         tint = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                                                     )
@@ -380,6 +436,7 @@ fun MainScreen(viewModel: IdeViewModel) {
         ) {
             Scaffold(
                 modifier = Modifier.fillMaxSize(),
+                contentWindowInsets = WindowInsets(0, 0, 0, 0),
                 topBar = {
                     Card(
                         modifier = Modifier
@@ -395,7 +452,10 @@ fun MainScreen(viewModel: IdeViewModel) {
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
+                            Row(
+                                modifier = Modifier.weight(1f, fill = false),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
                                 IconButton(
                                     onClick = { drawerScope.launch { drawerState.open() } },
                                     modifier = Modifier.testTag("open_sessions_drawer_button")
@@ -412,37 +472,72 @@ fun MainScreen(viewModel: IdeViewModel) {
                                     fontSize = 15.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = MaterialTheme.colorScheme.onSurface,
-                                    maxLines = 1
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                             }
 
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            AssistChip(
-                                onClick = { viewModel.setNavigationScreen(4) },
-                                label = { Text(selectedModel?.name?.take(14) ?: "Gemma-2B", fontSize = 10.sp) },
-                                colors = AssistChipDefaults.assistChipColors(
-                                    containerColor = MaterialTheme.colorScheme.primaryContainer,
-                                    labelColor = MaterialTheme.colorScheme.onPrimaryContainer
-                                )
-                            )
-
-                            Spacer(modifier = Modifier.width(6.dp))
-
-                            IconButton(
-                                onClick = { viewModel.setNavigationScreen(2) },
-                                modifier = Modifier.testTag("run_preview_top_button")
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.End
                             ) {
-                                Icon(
-                                    imageVector = Icons.Default.PlayArrow,
-                                    contentDescription = "Run",
-                                    tint = MaterialTheme.colorScheme.secondary
+                                IconButton(
+                                    onClick = {
+                                        val isCurrentlyLight = activeTheme == com.example.ui.theme.IdeTheme.WHITE
+                                        val nextTheme = if (isCurrentlyLight) com.example.ui.theme.IdeTheme.NIGHT else com.example.ui.theme.IdeTheme.WHITE
+                                        viewModel.setTheme(nextTheme)
+                                    },
+                                    modifier = Modifier.testTag("top_bar_theme_toggle_button")
+                                ) {
+                                    Icon(
+                                        imageVector = if (activeTheme == com.example.ui.theme.IdeTheme.WHITE) Icons.Default.DarkMode else Icons.Default.LightMode,
+                                        contentDescription = if (activeTheme == com.example.ui.theme.IdeTheme.WHITE) "Switch to Dark Mode" else "Switch to Light Mode",
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+
+                                Spacer(modifier = Modifier.width(2.dp))
+
+                                AssistChip(
+                                    onClick = { viewModel.setNavigationScreen(4) },
+                                    modifier = Modifier.widthIn(max = 130.dp),
+                                    label = {
+                                        val chipText = if (aiProviderSettings.mode == com.example.engine.inference.AiProviderMode.CLOUD_API) {
+                                            "☁️ ${aiProviderSettings.cloudProvider.displayName}"
+                                        } else {
+                                            val name = selectedModel?.name ?: "Gemma-2B"
+                                            if (name.contains("-")) name.substringBefore(".") else name.take(12)
+                                        }
+                                        Text(
+                                            text = chipText,
+                                            fontSize = 10.sp,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    },
+                                    colors = AssistChipDefaults.assistChipColors(
+                                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                                        labelColor = MaterialTheme.colorScheme.onPrimaryContainer
+                                    )
                                 )
+
+                                Spacer(modifier = Modifier.width(2.dp))
+
+                                IconButton(
+                                    onClick = { viewModel.setNavigationScreen(2) },
+                                    modifier = Modifier.testTag("run_preview_top_button")
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.PlayArrow,
+                                        contentDescription = "Run",
+                                        tint = MaterialTheme.colorScheme.secondary
+                                    )
+                                }
                             }
                         }
                     }
-                }
-            },
-            bottomBar = {
+                },
+                bottomBar = {
                 if (!(navScreen == 1 && isFullScreenEditor)) {
                     NavigationBar(
                         containerColor = MaterialTheme.colorScheme.surface,
@@ -491,10 +586,20 @@ fun MainScreen(viewModel: IdeViewModel) {
                 }
             }
         ) { paddingValues ->
+            val isImeVisible = WindowInsets.ime.asPaddingValues().calculateBottomPadding() > 0.dp
+            val layoutDirection = LocalLayoutDirection.current
+            val adjustedPadding = PaddingValues(
+                start = paddingValues.calculateStartPadding(layoutDirection),
+                top = paddingValues.calculateTopPadding(),
+                end = paddingValues.calculateEndPadding(layoutDirection),
+                bottom = if (isImeVisible) 0.dp else paddingValues.calculateBottomPadding()
+            )
+
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(paddingValues)
+                    .padding(adjustedPadding)
+                    .imePadding()
             ) {
                 saveableStateHolder.SaveableStateProvider(key = navScreen) {
                     when (navScreen) {
@@ -520,7 +625,7 @@ fun MainScreen(viewModel: IdeViewModel) {
                                 viewModel.setNavigationScreen(1)
                             },
                             onExportZip = {
-                                viewModel.exportProjectToZip { res ->
+                                viewModel.exportProjectToZip(context) { res ->
                                     android.widget.Toast.makeText(context, res, android.widget.Toast.LENGTH_LONG).show()
                                 }
                             },
@@ -535,11 +640,24 @@ fun MainScreen(viewModel: IdeViewModel) {
                             codeContent = activeCodeContent,
                             lastAutoSaveTime = lastAutoSaveTime,
                             isFullScreen = isFullScreenEditor,
+                            isAutoSaveEnabled = isAutoSaveEnabled,
+                            terminalLogs = terminalLogs,
+                            allProjectFiles = projectFiles,
                             onTabSelected = { viewModel.selectTab(it) },
                             onTabClosed = { viewModel.closeTab(it) },
                             onCodeChanged = { viewModel.updateCodeContent(it) },
                             onRunPreview = { viewModel.setNavigationScreen(2) },
-                            onToggleFullScreen = { isFullScreenEditor = !isFullScreenEditor }
+                            onSaveFile = { viewModel.saveActiveFile() },
+                            onToggleFullScreen = { isFullScreenEditor = !isFullScreenEditor },
+                            onClearTerminal = { viewModel.clearTerminalLogs() },
+                            onSendTerminalCommand = { viewModel.executeTerminalCommand(it) },
+                            onCreateFile = { name, content -> viewModel.createNewFile(name, content) },
+                            onDeleteFile = { path -> viewModel.deleteFile(path) },
+                            onExportZip = {
+                                viewModel.exportProjectToZip(context) { res ->
+                                    android.widget.Toast.makeText(context, res, android.widget.Toast.LENGTH_LONG).show()
+                                }
+                            }
                         )
 
                         2 -> LivePreviewScreen(
@@ -557,6 +675,7 @@ fun MainScreen(viewModel: IdeViewModel) {
                             selectedModel = selectedModel,
                             generationProgress = generationProgress,
                             isGenerating = isGenerating,
+                            allModels = allModels,
                             chatHistory = chatHistory,
                             chatSessions = chatSessions,
                             activeSessionId = activeSessionId,
@@ -564,6 +683,7 @@ fun MainScreen(viewModel: IdeViewModel) {
                             sessionAgentLogs = sessionAgentLogs,
                             projectFilePaths = projectFilePaths,
                             agentState = agentState,
+                            aiProviderSettings = aiProviderSettings,
                             onSendPrompt = { viewModel.runAiCodeGeneration(it) },
                             onRunAutonomousAgent = { viewModel.runAutonomousAgent(it) },
                             onCancelAgent = { viewModel.cancelAutonomousAgent() },
@@ -574,7 +694,9 @@ fun MainScreen(viewModel: IdeViewModel) {
                             onExportSession = { session -> viewModel.exportChatSessionToJson(context, session) },
                             onApplyCodeToWorkspace = { targetFile, codeSnippet, isAppend ->
                                 viewModel.applyCodeSnippetToWorkspace(targetFile, codeSnippet, isAppend)
-                            }
+                            },
+                            onSelectModel = { viewModel.selectModelProfile(it) },
+                            onImportGgufFile = { viewModel.importGgufModelUri(it) }
                         )
 
                         4 -> SettingsScreen(
@@ -586,6 +708,10 @@ fun MainScreen(viewModel: IdeViewModel) {
                             memoryCheckResult = memoryCheckResult,
                             contextWindow = contextWindow,
                             isHudEnabled = isHudEnabled,
+                            isAutoSaveEnabled = isAutoSaveEnabled,
+                            aiProviderSettings = aiProviderSettings,
+                            isTestingConnection = isTestingCloudConnection,
+                            connectionTestResult = cloudTestResult,
                             onThemeSelected = { viewModel.setTheme(it) },
                             onModelSelected = { viewModel.selectModelProfile(it) },
                             onImportGgufFile = { viewModel.importGgufModelUri(it) },
@@ -594,6 +720,9 @@ fun MainScreen(viewModel: IdeViewModel) {
                             onDismissImportProgress = { viewModel.dismissImportProgress() },
                             onContextWindowChanged = { viewModel.setContextWindow(it) },
                             onToggleHud = { viewModel.setPerformanceHudEnabled(it) },
+                            onToggleAutoSave = { viewModel.setAutoSaveEnabled(it) },
+                            onProviderSettingsChanged = { viewModel.updateAiProviderSettings(it) },
+                            onTestConnection = { viewModel.testCloudConnection() },
                             onClearHistory = { viewModel.clearChatHistory() }
                         )
 
@@ -622,7 +751,9 @@ fun MainScreen(viewModel: IdeViewModel) {
                     ) {
                         DiagnosticPanel(
                             diagnosticState = diagnosticState,
-                            isGenerating = isGenerating
+                            isGenerating = isGenerating,
+                            selectedModel = selectedModel,
+                            generationProgress = generationProgress
                         )
                     }
                 }

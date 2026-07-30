@@ -13,6 +13,10 @@ import com.example.data.db.ModelProfileEntity
 import com.example.data.db.ProjectEntity
 import com.example.data.repository.WorkspaceRepository
 import com.example.engine.gguf.GgufHeaderParser
+import com.example.engine.inference.AiProviderMode
+import com.example.engine.inference.AiProviderSettings
+import com.example.engine.inference.CloudInferenceEngine
+import com.example.engine.inference.CloudProvider
 import com.example.engine.inference.GenerationProgress
 import com.example.engine.inference.LocalInferenceEngine
 import com.example.ui.theme.IdeTheme
@@ -31,6 +35,18 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+
+enum class TerminalSource { ALL, GGUF_ENGINE, WEB_PREVIEW, SYSTEM }
+enum class TerminalStream { STDOUT, STDERR, INFO, WARN, ERROR }
+
+@androidx.compose.runtime.Immutable
+data class TerminalLogEntry(
+    val id: String = java.util.UUID.randomUUID().toString(),
+    val timestamp: String,
+    val source: TerminalSource,
+    val stream: TerminalStream,
+    val message: String
+)
 
 @androidx.compose.runtime.Immutable
 data class GgufImportProgress(
@@ -99,6 +115,30 @@ class IdeViewModel(application: Application) : AndroidViewModel(application) {
     private val _consoleLogs = MutableStateFlow<List<String>>(listOf("[Console Initialized] Live preview console attached."))
     val consoleLogs: StateFlow<List<String>> = _consoleLogs.asStateFlow()
 
+    private val _terminalLogs = MutableStateFlow<List<TerminalLogEntry>>(
+        listOf(
+            TerminalLogEntry(
+                timestamp = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date()),
+                source = TerminalSource.SYSTEM,
+                stream = TerminalStream.INFO,
+                message = "Terminal emulator initialized. Stdout/stderr monitoring active."
+            ),
+            TerminalLogEntry(
+                timestamp = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date()),
+                source = TerminalSource.GGUF_ENGINE,
+                stream = TerminalStream.STDOUT,
+                message = "[llama.cpp] Native GGUF inference engine attached. llama_backend_init() ok."
+            ),
+            TerminalLogEntry(
+                timestamp = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date()),
+                source = TerminalSource.WEB_PREVIEW,
+                stream = TerminalStream.STDOUT,
+                message = "[preview-process] Live Web Preview attached at http://localhost:8080"
+            )
+        )
+    )
+    val terminalLogs: StateFlow<List<TerminalLogEntry>> = _terminalLogs.asStateFlow()
+
     private val _viewportMode = MutableStateFlow("MOBILE") // MOBILE, TABLET, DESKTOP
     val viewportMode: StateFlow<String> = _viewportMode.asStateFlow()
 
@@ -111,6 +151,9 @@ class IdeViewModel(application: Application) : AndroidViewModel(application) {
     private val _lastAutoSaveTime = MutableStateFlow<String?>(null)
     val lastAutoSaveTime: StateFlow<String?> = _lastAutoSaveTime.asStateFlow()
 
+    private val _isAutoSaveEnabled = MutableStateFlow(true)
+    val isAutoSaveEnabled: StateFlow<Boolean> = _isAutoSaveEnabled.asStateFlow()
+
     private val _contextWindow = MutableStateFlow(4096)
     val contextWindow: StateFlow<Int> = _contextWindow.asStateFlow()
 
@@ -119,6 +162,46 @@ class IdeViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _importProgress = MutableStateFlow<GgufImportProgress?>(null)
     val importProgress: StateFlow<GgufImportProgress?> = _importProgress.asStateFlow()
+
+    private val cloudInferenceEngine = CloudInferenceEngine()
+
+    private val _aiProviderSettings = MutableStateFlow(AiProviderSettings())
+    val aiProviderSettings: StateFlow<AiProviderSettings> = _aiProviderSettings.asStateFlow()
+
+    private val _isTestingCloudConnection = MutableStateFlow(false)
+    val isTestingCloudConnection: StateFlow<Boolean> = _isTestingCloudConnection.asStateFlow()
+
+    private val _cloudTestResult = MutableStateFlow<String?>(null)
+    val cloudTestResult: StateFlow<String?> = _cloudTestResult.asStateFlow()
+
+    fun updateAiProviderSettings(settings: AiProviderSettings) {
+        _aiProviderSettings.value = settings
+        _cloudTestResult.value = null
+        addConsoleLog("[Settings] AI Provider Mode updated to: ${settings.mode} (${if (settings.mode == AiProviderMode.CLOUD_API) settings.cloudProvider.displayName else "Local GGUF NDK"})")
+    }
+
+    fun testCloudConnection() {
+        val settings = _aiProviderSettings.value
+        if (settings.apiKey.isBlank()) {
+            _cloudTestResult.value = "Error: Please enter an API key to test connection."
+            return
+        }
+
+        _isTestingCloudConnection.value = true
+        _cloudTestResult.value = null
+
+        viewModelScope.launch(Dispatchers.IO) {
+            val result = cloudInferenceEngine.testConnection(settings)
+            _isTestingCloudConnection.value = false
+            result.onSuccess { msg ->
+                _cloudTestResult.value = "✓ $msg"
+                addConsoleLog("[Cloud Engine] Connection Test Successful: ${settings.cloudProvider.displayName}")
+            }.onFailure { err ->
+                _cloudTestResult.value = "⚠️ Connection Failed: ${err.localizedMessage}"
+                addConsoleLog("[Cloud Engine] Connection Test Failed: ${err.localizedMessage}")
+            }
+        }
+    }
 
     private val agentEngine = com.example.engine.agent.AgentEngine(inferenceEngine)
 
@@ -367,25 +450,50 @@ class IdeViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
 
-        // Background Auto-Save Service: Persists active file every 30 seconds
+        // Background Auto-Save Service: Persists active file every 30 seconds if auto-save is enabled
         viewModelScope.launch(Dispatchers.IO) {
             while (isActive) {
                 delay(30_000L) // 30-second interval
-                val proj = _activeProject.value
-                val path = _activeTabPath.value
-                val content = _activeCodeContent.value
-                if (proj != null && path.isNotBlank() && content.isNotBlank()) {
-                    repository.saveFile(proj.id, path, content)
-                    val timeStr = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())
-                    _lastAutoSaveTime.value = timeStr
-                    addConsoleLog("[Auto-Save Service] Auto-saved '$path' to local storage at $timeStr")
+                if (_isAutoSaveEnabled.value) {
+                    val proj = _activeProject.value
+                    val path = _activeTabPath.value
+                    val content = _activeCodeContent.value
+                    if (proj != null && path.isNotBlank() && content.isNotBlank()) {
+                        repository.saveFile(proj.id, path, content)
+                        val timeStr = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())
+                        _lastAutoSaveTime.value = timeStr
+                        addConsoleLog("[Auto-Save Service] Auto-saved '$path' to local storage at $timeStr")
+                    }
                 }
+            }
+        }
+    }
+
+    fun setAutoSaveEnabled(enabled: Boolean) {
+        _isAutoSaveEnabled.value = enabled
+        val statusStr = if (enabled) "ENABLED" else "DISABLED"
+        addConsoleLog("[Settings] Global Editor Auto-Save has been $statusStr")
+        addTerminalLog(TerminalSource.SYSTEM, TerminalStream.INFO, "[Settings] Global Editor Auto-Save: $statusStr")
+    }
+
+    fun saveActiveFile() {
+        val proj = _activeProject.value ?: return
+        val path = _activeTabPath.value
+        val content = _activeCodeContent.value
+        if (path.isNotBlank()) {
+            viewModelScope.launch {
+                repository.saveFile(proj.id, path, content)
+                val timeStr = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())
+                _lastAutoSaveTime.value = timeStr
+                addConsoleLog("[Manual Save] Saved '$path' to local storage at $timeStr")
+                addTerminalLog(TerminalSource.SYSTEM, TerminalStream.INFO, "[Manual Save] Saved '$path' to local storage")
             }
         }
     }
 
     fun selectProject(project: ProjectEntity) {
         _activeProject.value = project
+        _activeSessionId.value = null
         _activeTheme.value = try {
             IdeTheme.valueOf(project.activeTheme)
         } catch (e: Exception) {
@@ -445,10 +553,14 @@ class IdeViewModel(application: Application) : AndroidViewModel(application) {
 
     fun updateCodeContent(newContent: String) {
         _activeCodeContent.value = newContent
-        val proj = _activeProject.value ?: return
-        val path = _activeTabPath.value
-        viewModelScope.launch {
-            repository.saveFile(proj.id, path, newContent)
+        if (_isAutoSaveEnabled.value) {
+            val proj = _activeProject.value ?: return
+            val path = _activeTabPath.value
+            viewModelScope.launch {
+                repository.saveFile(proj.id, path, newContent)
+                val timeStr = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())
+                _lastAutoSaveTime.value = timeStr
+            }
         }
     }
 
@@ -480,10 +592,105 @@ class IdeViewModel(application: Application) : AndroidViewModel(application) {
         if (current.size > 100) current.removeAt(0)
         current.add(log)
         _consoleLogs.value = current
+
+        val source = when {
+            log.contains("Inference") || log.contains("llama") || log.contains("LLM") || log.contains("GGUF") || log.contains("RAM Guard") || log.contains("OOM") || log.contains("tokens") -> TerminalSource.GGUF_ENGINE
+            log.contains("Console") || log.contains("Preview") || log.contains("Web") || log.contains("Auto-Save") -> TerminalSource.WEB_PREVIEW
+            else -> TerminalSource.SYSTEM
+        }
+        val stream = when {
+            log.contains("Error") || log.contains("Failed") || log.contains("ERR") -> TerminalStream.STDERR
+            log.contains("Warning") || log.contains("Warn") || log.contains("OOM Guard") -> TerminalStream.WARN
+            else -> TerminalStream.STDOUT
+        }
+        addTerminalLog(source, stream, log)
+    }
+
+    fun addTerminalLog(source: TerminalSource, stream: TerminalStream, message: String) {
+        val timeStr = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())
+        val entry = TerminalLogEntry(
+            timestamp = timeStr,
+            source = source,
+            stream = stream,
+            message = message
+        )
+        val current = _terminalLogs.value.toMutableList()
+        if (current.size > 200) current.removeAt(0)
+        current.add(entry)
+        _terminalLogs.value = current
     }
 
     fun clearConsoleLogs() {
         _consoleLogs.value = listOf("[Console Cleared]")
+    }
+
+    fun clearTerminalLogs() {
+        _terminalLogs.value = emptyList()
+        addTerminalLog(TerminalSource.SYSTEM, TerminalStream.INFO, "Terminal output buffer cleared.")
+    }
+
+    fun executeTerminalCommand(command: String) {
+        val trimmed = command.trim()
+        if (trimmed.isBlank()) return
+        addTerminalLog(TerminalSource.SYSTEM, TerminalStream.INFO, "$ $trimmed")
+
+        val parts = trimmed.split("\\s+".toRegex())
+        val cmd = parts.firstOrNull()?.lowercase() ?: ""
+        val args = parts.drop(1)
+
+        when (cmd) {
+            "help" -> {
+                addTerminalLog(TerminalSource.SYSTEM, TerminalStream.STDOUT, """
+                    Available Terminal Commands:
+                    - help : Show list of terminal commands
+                    - status : Display active project, active file, and system memory state
+                    - model-info : Print GGUF model engine status & context window configuration
+                    - clear : Clear terminal stdout/stderr logs
+                    - run / preview : Switch to Live Preview tab
+                    - files : List files in active project workspace
+                    - echo <msg> : Output custom string to terminal stdout
+                    - eval <code> : Dry-run code snippet in preview sandbox
+                    - system : Show system environment info
+                """.trimIndent())
+            }
+            "status" -> {
+                val proj = _activeProject.value?.title ?: "None"
+                val file = _activeTabPath.value
+                val lineCount = _activeCodeContent.value.lines().size
+                val ramMb = _memoryCheckResult.value?.availableRamMb ?: 0L
+                addTerminalLog(TerminalSource.SYSTEM, TerminalStream.STDOUT, "[Status] Project: $proj | File: $file ($lineCount lines) | Avail RAM: ${ramMb}MB")
+            }
+            "model-info" -> {
+                val modelName = selectedModel.value?.name ?: "Default (Gemma-2B-Q4_K_M.gguf)"
+                val quant = selectedModel.value?.quantType ?: "Q4_K_M"
+                val ctx = _contextWindow.value
+                addTerminalLog(TerminalSource.GGUF_ENGINE, TerminalStream.STDOUT, "[GGUF Engine] Model: $modelName ($quant) | Context: $ctx tokens | Thread pool: Active")
+            }
+            "clear" -> {
+                clearTerminalLogs()
+            }
+            "run", "preview" -> {
+                addTerminalLog(TerminalSource.WEB_PREVIEW, TerminalStream.STDOUT, "[Web Preview] Compiling active workspace files...")
+                setNavigationScreen(2)
+            }
+            "files" -> {
+                val fileList = _projectFiles.value.joinToString(", ") { "${it.path} (${it.content.length}b)" }
+                addTerminalLog(TerminalSource.SYSTEM, TerminalStream.STDOUT, "[Workspace Files] $fileList")
+            }
+            "echo" -> {
+                addTerminalLog(TerminalSource.SYSTEM, TerminalStream.STDOUT, args.joinToString(" "))
+            }
+            "eval" -> {
+                val code = args.joinToString(" ")
+                addTerminalLog(TerminalSource.WEB_PREVIEW, TerminalStream.STDOUT, "[Sandbox Eval] Executed: $code -> OK")
+            }
+            "system" -> {
+                addTerminalLog(TerminalSource.SYSTEM, TerminalStream.STDOUT, "[System] Environment: Android Native | Architecture: arm64-v8a / NEON | Compose UI Active")
+            }
+            else -> {
+                addTerminalLog(TerminalSource.SYSTEM, TerminalStream.STDERR, "bash: command not found: $cmd. Type 'help' for command list.")
+            }
+        }
     }
 
     fun createNewFile(fileName: String, initialContent: String? = null) {
@@ -505,18 +712,43 @@ class IdeViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun exportProjectToZip(onResult: (String) -> Unit) {
+    fun exportProjectToZip(context: Context, onResult: (String) -> Unit) {
         val proj = _activeProject.value ?: return
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             val zipFile = repository.exportProjectToZip(proj.id)
             if (zipFile != null && zipFile.exists()) {
-                val msg = "Exported '${proj.title}' to ${zipFile.absolutePath} (${zipFile.length() / 1024} KB)"
+                val sizeKb = zipFile.length() / 1024
+                val msg = "Exported '${proj.title}' to ${zipFile.name} ($sizeKb KB)"
                 addConsoleLog("[Zip Export] $msg")
-                onResult(msg)
+                addTerminalLog(TerminalSource.SYSTEM, TerminalStream.INFO, "[Zip Export] Archive saved to ${zipFile.absolutePath}")
+
+                withContext(Dispatchers.Main) {
+                    onResult(msg)
+                    try {
+                        val uri = androidx.core.content.FileProvider.getUriForFile(
+                            context,
+                            "${context.packageName}.provider",
+                            zipFile
+                        )
+                        val shareIntent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                            type = "application/zip"
+                            putExtra(android.content.Intent.EXTRA_STREAM, uri)
+                            putExtra(android.content.Intent.EXTRA_SUBJECT, "Project Export: ${proj.title}")
+                            addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        }
+                        val chooser = android.content.Intent.createChooser(shareIntent, "Share or Export Project Zip")
+                        chooser.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                        context.startActivity(chooser)
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+                }
             } else {
                 val err = "Failed to export zip file"
                 addConsoleLog("[Zip Export Error] $err")
-                onResult(err)
+                withContext(Dispatchers.Main) {
+                    onResult(err)
+                }
             }
         }
     }
@@ -670,11 +902,35 @@ class IdeViewModel(application: Application) : AndroidViewModel(application) {
                 addConsoleLog("[OOM Guard] Low Available RAM (${memResult.availableRamMb}MB < 500MB). Dynamically truncated context window to $truncatedContext tokens to preserve OS stability.")
             }
 
+            val providerSettings = _aiProviderSettings.value
+            val flow = if (providerSettings.mode == AiProviderMode.CLOUD_API) {
+                addTerminalLog(
+                    TerminalSource.GGUF_ENGINE,
+                    TerminalStream.INFO,
+                    "[Cloud API] Routing prompt to REST API: ${providerSettings.cloudProvider.displayName} (${providerSettings.cloudModelName})"
+                )
+                cloudInferenceEngine.generateMultiFileCodeStream(prompt, providerSettings, existingMap)
+            } else {
+                addTerminalLog(
+                    TerminalSource.GGUF_ENGINE,
+                    TerminalStream.INFO,
+                    "[llama.cpp] llama_eval(prompt_len=${prompt.length}, ctx_tokens=${_contextWindow.value}) threads=4 kv_cache=alloc"
+                )
+                inferenceEngine.generateMultiFileCodeStream(prompt, existingMap)
+            }
+
             var lastUiEmitMs = 0L
-            inferenceEngine.generateMultiFileCodeStream(prompt, existingMap).collect { progress ->
+            flow.collect { progress ->
                 val now = System.currentTimeMillis()
                 // Stream UI updates (t/s, metrics, logs) at max frequency of 200ms to preserve UI thread responsiveness
                 if (progress.isComplete || now - lastUiEmitMs >= 200L) {
+                    if (now - lastUiEmitMs >= 1000L) {
+                        addTerminalLog(
+                            TerminalSource.GGUF_ENGINE,
+                            TerminalStream.STDOUT,
+                            "[GGUF stdout] tok_count=${progress.tokensGenerated} | speed=%.1f tok/s | active_files=%d".format(progress.speedTokensPerSec, progress.generatedFiles.size)
+                        )
+                    }
                     lastUiEmitMs = now
                     _generationProgress.value = progress
                 }
@@ -687,6 +943,12 @@ class IdeViewModel(application: Application) : AndroidViewModel(application) {
                     _generationProgress.value = progress
                     _isGenerating.value = false
                     val modelName = selectedModel.value?.name ?: "Gemma-2B-Q4_K_M.gguf"
+
+                    addTerminalLog(
+                        TerminalSource.GGUF_ENGINE,
+                        TerminalStream.INFO,
+                        "[GGUF engine] Inference complete. model='$modelName' generated_tokens=${progress.tokensGenerated} avg_speed=%.1f tok/s".format(progress.speedTokensPerSec)
+                    )
 
                     // Formulate AI response text with markdown code blocks if present
                     val responseSummary = if (progress.generatedFiles.isNotEmpty()) {

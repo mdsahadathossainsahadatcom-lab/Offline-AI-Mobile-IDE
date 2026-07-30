@@ -250,127 +250,14 @@ fun WorkspaceDrawerScreen(
             Spacer(modifier = Modifier.height(12.dp))
 
             // 3. File Explorer Section
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(imageVector = Icons.Default.Folder, contentDescription = "Files", tint = MaterialTheme.colorScheme.secondary)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = "FILES & ASSETS (${files.size})",
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                }
-
-                TextButton(onClick = { isNewFileDialogOpen = true }) {
-                    Icon(imageVector = Icons.Default.Add, contentDescription = "New File")
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("New File", fontSize = 12.sp)
-                }
-            }
-
-            // Quick Switcher Bar for index.html, style.css, script.js
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 6.dp),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                listOf("index.html", "style.css", "script.js").forEach { corePath ->
-                    val isActive = activeTabPath == corePath
-                    val fileExists = files.any { it.path == corePath }
-                    Button(
-                        onClick = { onSelectFile(corePath) },
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = if (isActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
-                            contentColor = if (isActive) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
-                        ),
-                        shape = RoundedCornerShape(8.dp),
-                        enabled = fileExists,
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Text(
-                            text = when(corePath) {
-                                "index.html" -> "🌐 HTML"
-                                "style.css" -> "🎨 CSS"
-                                else -> "⚡ JS"
-                            },
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                }
-            }
-
-            workspaceDir?.let { dir ->
-                Text(
-                    text = "📁 Disk Path: ${dir.name} • ${diskFiles.size} java.io.Files listed",
-                    fontSize = 10.sp,
-                    fontFamily = FontFamily.Monospace,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
-                    modifier = Modifier.padding(bottom = 6.dp)
-                )
-            }
-
-            Spacer(modifier = Modifier.height(4.dp))
-
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                items(files) { file ->
-                    val isSelected = file.path == activeTabPath
-                    Card(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { onSelectFile(file.path) },
-                        colors = CardDefaults.cardColors(
-                            containerColor = if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f) else MaterialTheme.colorScheme.surface
-                        ),
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 12.dp, vertical = 10.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(text = getFileEmoji(file.path), fontSize = 16.sp)
-                                Spacer(modifier = Modifier.width(12.dp))
-                                Column {
-                                    Text(
-                                        text = file.path,
-                                        fontSize = 14.sp,
-                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                        color = MaterialTheme.colorScheme.onSurface
-                                    )
-                                    Text(
-                                        text = "${file.content.length} chars • ${file.language.uppercase()}",
-                                        fontSize = 11.sp,
-                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
-                                    )
-                                }
-                            }
-
-                            if (files.size > 1) {
-                                IconButton(onClick = { onDeleteFile(file.path) }) {
-                                    Icon(
-                                        imageVector = Icons.Default.Delete,
-                                        contentDescription = "Delete File",
-                                        tint = MaterialTheme.colorScheme.error.copy(alpha = 0.7f)
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+            FileExplorerComponent(
+                files = files,
+                activeTabPath = activeTabPath,
+                onSelectFile = onSelectFile,
+                onCreateFile = onCreateFile,
+                onDeleteFile = onDeleteFile,
+                modifier = Modifier.weight(1f)
+            )
         } else {
             // SECTION 1: BOILERPLATE TEMPLATES LIBRARY
             Column(modifier = Modifier.fillMaxSize()) {
@@ -673,18 +560,5 @@ fun WorkspaceDrawerScreen(
                 }
             }
         )
-    }
-}
-
-private fun getFileEmoji(path: String): String {
-    return when {
-        path.endsWith(".html", ignoreCase = true) || path.endsWith(".htm", ignoreCase = true) -> "🌐"
-        path.endsWith(".css", ignoreCase = true) -> "🎨"
-        path.endsWith(".js", ignoreCase = true) || path.endsWith(".ts", ignoreCase = true) -> "⚡"
-        path.endsWith(".py", ignoreCase = true) -> "🐍"
-        path.endsWith(".json", ignoreCase = true) -> "📦"
-        path.endsWith(".md", ignoreCase = true) -> "📝"
-        path.endsWith(".txt", ignoreCase = true) -> "📄"
-        else -> "📄"
     }
 }

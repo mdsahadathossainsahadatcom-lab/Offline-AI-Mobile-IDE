@@ -38,13 +38,24 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.util.DiagnosticState
 
+import com.example.data.db.ModelProfileEntity
+import com.example.engine.inference.GenerationProgress
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+
 @Composable
 fun DiagnosticPanel(
     diagnosticState: DiagnosticState,
     isGenerating: Boolean = false,
+    selectedModel: ModelProfileEntity? = null,
+    generationProgress: GenerationProgress? = null,
     modifier: Modifier = Modifier,
     isExpandedDefault: Boolean = true
 ) {
+    var showChartDashboard by remember { mutableStateOf(false) }
     val totalRamGb = "%.1f GB".format(diagnosticState.totalRamMb / 1024.0)
     val availRamGb = "%.1f GB".format(diagnosticState.availableRamMb / 1024.0)
     val usedRamGb = "%.1f GB".format(diagnosticState.usedRamMb / 1024.0)
@@ -297,6 +308,33 @@ fun DiagnosticPanel(
                         text = "CPU Threads: ${diagnosticState.cpuThreads}",
                         fontSize = 10.sp,
                         color = Color(0xFFCBD5E1)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Toggle Performance Dashboard
+            TextButton(
+                onClick = { showChartDashboard = !showChartDashboard },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    text = if (showChartDashboard) "▲ Hide Performance Dashboard Chart" else "📊 Show Token Speed & Memory Chart Dashboard",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFF38BDF8)
+                )
+            }
+
+            AnimatedVisibility(visible = showChartDashboard) {
+                Column {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    PerformanceDashboard(
+                        selectedModel = selectedModel,
+                        diagnosticState = diagnosticState,
+                        generationProgress = generationProgress,
+                        isGenerating = isGenerating
                     )
                 }
             }

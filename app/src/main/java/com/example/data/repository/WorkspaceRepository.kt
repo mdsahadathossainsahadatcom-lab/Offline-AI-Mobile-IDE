@@ -244,6 +244,13 @@ class WorkspaceRepository(private val context: Context) {
             e.printStackTrace()
         }
 
+        if (displayName.startsWith("Model_") || displayName.isBlank()) {
+            val uriFileName = uri.lastPathSegment?.substringAfterLast('/')?.substringAfterLast(':')
+            if (!uriFileName.isNullOrBlank() && uriFileName.contains(".")) {
+                displayName = uriFileName
+            }
+        }
+
         if (!displayName.endsWith(".gguf", ignoreCase = true)) {
             displayName += ".gguf"
         }
@@ -293,13 +300,18 @@ class WorkspaceRepository(private val context: Context) {
 
         val metadata = com.example.engine.gguf.GgufHeaderParser.parseGgufUri(context, Uri.fromFile(targetFile))
 
+        val effectiveSizeBytes = if (metadata.sizeBytes > 0) metadata.sizeBytes else fileSize
+        val effectiveQuant = if (metadata.quantType.isNotBlank()) metadata.quantType else "Q4_K_M"
+        val effectiveArch = if (metadata.architecture.isNotBlank()) metadata.architecture else "llama"
+        val effectiveParams = if (metadata.estimatedParams.isNotBlank()) metadata.estimatedParams else "Custom"
+
         val modelId = addModelProfile(
             name = displayName,
             path = targetFile.absolutePath,
-            sizeBytes = if (metadata.sizeBytes > 0) metadata.sizeBytes else fileSize,
-            quantType = metadata.quantType,
-            architecture = metadata.architecture,
-            parameters = metadata.estimatedParams,
+            sizeBytes = effectiveSizeBytes,
+            quantType = effectiveQuant,
+            architecture = effectiveArch,
+            parameters = effectiveParams,
             contextWindow = metadata.contextWindow
         )
 
@@ -377,7 +389,21 @@ class WorkspaceRepository(private val context: Context) {
     suspend fun exportProjectToZip(projectId: Long): File? {
         val project = projectDao.getProjectById(projectId) ?: return null
         val sourceDir = File(context.filesDir, "workspace_$projectId")
-        if (!sourceDir.exists()) return null
+        if (!sourceDir.exists()) sourceDir.mkdirs()
+
+        // Sync all latest database file contents to sourceDir before compressing
+        try {
+            val dbFiles = fileDao.getFilesForProject(projectId).first()
+            dbFiles.forEach { f ->
+                val target = File(sourceDir, f.path)
+                target.parentFile?.mkdirs()
+                if (!target.exists() || target.readText() != f.content) {
+                    target.writeText(f.content)
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
 
         val downloadsDir = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS)
             ?: context.getExternalFilesDir(android.os.Environment.DIRECTORY_DOWNLOADS)
@@ -526,6 +552,25 @@ console.log('App initialized on Local AI IDE.');
 """.trimIndent()
                 )
             )
+        }
+
+        val projects = allProjects.first()
+        val primaryProject = projects.firstOrNull()
+        if (primaryProject != null) {
+            val sessions = chatSessionDao.getSessionsForProject(primaryProject.id).first()
+            if (sessions.isEmpty()) {
+                val sId = createOrGetActiveSession(primaryProject.id, "Smart Calculator Build")
+                saveChatMessage(
+                    sId,
+                    "User",
+                    "Build a Smart Scientific Calculator with responsive UI and trigonometric functions."
+                )
+                saveChatMessage(
+                    sId,
+                    "AI",
+                    "I have set up your initial project workspace with `index.html`, `style.css`, and `script.js` for the Smart Scientific Calculator.\n\n```html\n<div class=\"calculator\">\n  <input id=\"display\" class=\"display\" readonly value=\"0\">\n</div>\n```\n\nAll chat prompts, responses, and code suggestions are persisted in Room database for offline review."
+                )
+            }
         }
 
         val existingModels = allModels.first()

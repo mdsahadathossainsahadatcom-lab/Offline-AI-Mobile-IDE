@@ -29,7 +29,7 @@ import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Speed
-import androidx.compose.material.icons.filled.ShowChart
+import androidx.compose.material.icons.automirrored.filled.ShowChart
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -48,11 +48,23 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.SdStorage
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material3.CircularProgressIndicator
+import com.example.engine.inference.AiProviderMode
+import com.example.engine.inference.AiProviderSettings
+import com.example.engine.inference.CloudProvider
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.TextButton
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.platform.testTag
+import androidx.compose.material3.Surface
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.example.ui.viewmodel.GgufImportProgress
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -91,6 +103,10 @@ fun SettingsScreen(
     memoryCheckResult: MemoryCheckResult? = null,
     contextWindow: Int = 4096,
     isHudEnabled: Boolean = false,
+    isAutoSaveEnabled: Boolean = true,
+    aiProviderSettings: AiProviderSettings = AiProviderSettings(),
+    isTestingConnection: Boolean = false,
+    connectionTestResult: String? = null,
     onThemeSelected: (IdeTheme) -> Unit,
     onModelSelected: (Long) -> Unit,
     onImportGgufFile: (Uri) -> Unit,
@@ -99,6 +115,9 @@ fun SettingsScreen(
     onDismissImportProgress: () -> Unit = {},
     onContextWindowChanged: (Int) -> Unit = {},
     onToggleHud: (Boolean) -> Unit = {},
+    onToggleAutoSave: (Boolean) -> Unit = {},
+    onProviderSettingsChanged: (AiProviderSettings) -> Unit = {},
+    onTestConnection: () -> Unit = {},
     onClearHistory: () -> Unit = {}
 ) {
 
@@ -107,6 +126,32 @@ fun SettingsScreen(
     var modelToRename by remember { mutableStateOf<ModelProfileEntity?>(null) }
     var renameInput by remember { mutableStateOf("") }
     var modelForDetails by remember { mutableStateOf<ModelProfileEntity?>(null) }
+    var showModelManagerModal by remember { mutableStateOf(false) }
+
+    if (showModelManagerModal) {
+        Dialog(
+            onDismissRequest = { showModelManagerModal = false },
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            Surface(
+                modifier = Modifier.fillMaxSize(),
+                color = MaterialTheme.colorScheme.background
+            ) {
+                GgufModelManagerScreen(
+                    models = models,
+                    selectedModel = selectedModel,
+                    importProgress = importProgress,
+                    memoryCheckResult = memoryCheckResult,
+                    onModelSelected = onModelSelected,
+                    onImportGgufFile = onImportGgufFile,
+                    onDeleteModel = onDeleteModel,
+                    onRenameModel = onRenameModel,
+                    onDismissImportProgress = onDismissImportProgress,
+                    onCloseModal = { showModelManagerModal = false }
+                )
+            }
+        }
+    }
 
     // Storage Access Framework Document Picker for .gguf model files
     val documentPickerLauncher = rememberLauncherForActivityResult(
@@ -207,6 +252,266 @@ fun SettingsScreen(
             }
         }
 
+        // 1.5. AI Provider Configuration (Local GGUF vs Cloud REST API)
+        item {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("ai_provider_configuration_card"),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                shape = RoundedCornerShape(16.dp)
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.AutoAwesome,
+                            contentDescription = "AI Engine Provider",
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Column {
+                            Text(
+                                text = "AI PROVIDER CONFIGURATION",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                text = "Switch between Local GGUF (NDK) and Cloud REST APIs",
+                                fontSize = 10.sp,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    Text(
+                        text = "ENGINE PROVIDER MODE",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        val isLocal = aiProviderSettings.mode == AiProviderMode.LOCAL_GGUF
+                        Card(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(12.dp))
+                                .clickable { onProviderSettingsChanged(aiProviderSettings.copy(mode = AiProviderMode.LOCAL_GGUF)) },
+                            colors = CardDefaults.cardColors(
+                                containerColor = if (isLocal) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant
+                            ),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(12.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Text(text = "🟢 Local GGUF", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                Text(
+                                    text = "On-Device NDK",
+                                    fontSize = 10.sp,
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                                )
+                            }
+                        }
+
+                        val isCloud = aiProviderSettings.mode == AiProviderMode.CLOUD_API
+                        Card(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(12.dp))
+                                .clickable { onProviderSettingsChanged(aiProviderSettings.copy(mode = AiProviderMode.CLOUD_API)) },
+                            colors = CardDefaults.cardColors(
+                                containerColor = if (isCloud) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant
+                            ),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(12.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Text(text = "☁️ Cloud API", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                Text(
+                                    text = "REST API (User Key)",
+                                    fontSize = 10.sp,
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                                )
+                            }
+                        }
+                    }
+
+                    if (aiProviderSettings.mode == AiProviderMode.LOCAL_GGUF) {
+                        Spacer(modifier = Modifier.height(14.dp))
+                        Text(
+                            text = "ACTIVE LOCAL GGUF MODEL FILE",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        GgufModelDropdownSelector(
+                            models = models,
+                            selectedModel = selectedModel,
+                            onModelSelected = onModelSelected,
+                            onImportRequested = { documentPickerLauncher.launch(arrayOf("*/*")) },
+                            label = "Select Active Local GGUF File"
+                        )
+                    }
+
+                    if (aiProviderSettings.mode == AiProviderMode.CLOUD_API) {
+                        Spacer(modifier = Modifier.height(14.dp))
+
+                        Text(
+                            text = "SELECT CLOUD PROVIDER",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            CloudProvider.values().forEach { provider ->
+                                val isSelected = aiProviderSettings.cloudProvider == provider
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(if (isSelected) MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.4f) else Color.Transparent)
+                                        .clickable {
+                                            val defaultModel = when (provider) {
+                                                CloudProvider.GEMINI -> "gemini-1.5-flash"
+                                                CloudProvider.OPENAI -> "gpt-4o-mini"
+                                                CloudProvider.GROQ -> "llama-3.1-8b-instant"
+                                                CloudProvider.CLAUDE -> "claude-3-5-sonnet-20240620"
+                                            }
+                                            onProviderSettingsChanged(
+                                                aiProviderSettings.copy(
+                                                    cloudProvider = provider,
+                                                    cloudModelName = defaultModel
+                                                )
+                                            )
+                                        }
+                                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    RadioButton(
+                                        selected = isSelected,
+                                        onClick = {
+                                            val defaultModel = when (provider) {
+                                                CloudProvider.GEMINI -> "gemini-1.5-flash"
+                                                CloudProvider.OPENAI -> "gpt-4o-mini"
+                                                CloudProvider.GROQ -> "llama-3.1-8b-instant"
+                                                CloudProvider.CLAUDE -> "claude-3-5-sonnet-20240620"
+                                            }
+                                            onProviderSettingsChanged(
+                                                aiProviderSettings.copy(
+                                                    cloudProvider = provider,
+                                                    cloudModelName = defaultModel
+                                                )
+                                            )
+                                        }
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = provider.displayName,
+                                        fontSize = 13.sp,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                    )
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        var apiKeyVisible by remember { mutableStateOf(false) }
+
+                        OutlinedTextField(
+                            value = aiProviderSettings.apiKey,
+                            onValueChange = { onProviderSettingsChanged(aiProviderSettings.copy(apiKey = it)) },
+                            label = { Text("${aiProviderSettings.cloudProvider.displayName} API Key") },
+                            placeholder = { Text("Enter your API key...") },
+                            modifier = Modifier.fillMaxWidth().testTag("api_key_input_field"),
+                            singleLine = true,
+                            visualTransformation = if (apiKeyVisible) androidx.compose.ui.text.input.VisualTransformation.None else androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                            trailingIcon = {
+                                IconButton(onClick = { apiKeyVisible = !apiKeyVisible }) {
+                                    Icon(
+                                        imageVector = if (apiKeyVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                        contentDescription = if (apiKeyVisible) "Hide Key" else "Show Key"
+                                    )
+                                }
+                            },
+                            shape = RoundedCornerShape(10.dp)
+                        )
+
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        OutlinedTextField(
+                            value = aiProviderSettings.cloudModelName,
+                            onValueChange = { onProviderSettingsChanged(aiProviderSettings.copy(cloudModelName = it)) },
+                            label = { Text("Model Identifier") },
+                            placeholder = { Text("e.g. gemini-1.5-flash, gpt-4o-mini") },
+                            modifier = Modifier.fillMaxWidth().testTag("cloud_model_name_input"),
+                            singleLine = true,
+                            shape = RoundedCornerShape(10.dp)
+                        )
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        Button(
+                            onClick = onTestConnection,
+                            modifier = Modifier.fillMaxWidth().testTag("test_cloud_connection_button"),
+                            enabled = !isTestingConnection && aiProviderSettings.apiKey.isNotBlank(),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            if (isTestingConnection) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(18.dp),
+                                    color = MaterialTheme.colorScheme.onPrimary,
+                                    strokeWidth = 2.dp
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Testing Connection...")
+                            } else {
+                                Icon(imageVector = Icons.Default.Speed, contentDescription = "Test Connection", modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Test Connection")
+                            }
+                        }
+
+                        if (connectionTestResult != null) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(
+                                        color = if (connectionTestResult.startsWith("✓")) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.errorContainer,
+                                        shape = RoundedCornerShape(8.dp)
+                                    )
+                                    .padding(10.dp)
+                            ) {
+                                Text(
+                                    text = connectionTestResult,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = if (connectionTestResult.startsWith("✓")) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onErrorContainer
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         // 2. GGUF Local Model Storage & File Management System
         item {
             val totalGgufBytes = remember(models) { models.sumOf { it.sizeBytes } }
@@ -242,13 +547,25 @@ fun SettingsScreen(
                             }
                         }
 
-                        Button(
-                            onClick = { documentPickerLauncher.launch(arrayOf("*/*")) },
-                            shape = RoundedCornerShape(12.dp)
-                        ) {
-                            Icon(imageVector = Icons.Default.FileOpen, contentDescription = "Import GGUF")
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("Import .gguf", fontSize = 11.sp)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedButton(
+                                onClick = { showModelManagerModal = true },
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.testTag("open_gguf_manager_button")
+                            ) {
+                                Icon(imageVector = Icons.Default.Tune, contentDescription = "Manage Models", modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Manage", fontSize = 11.sp)
+                            }
+
+                            Button(
+                                onClick = { documentPickerLauncher.launch(arrayOf("*/*")) },
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Icon(imageVector = Icons.Default.FileOpen, contentDescription = "Import GGUF", modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Import .gguf", fontSize = 11.sp)
+                            }
                         }
                     }
 
@@ -295,6 +612,16 @@ fun SettingsScreen(
                             }
                         }
                     }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    GgufModelDropdownSelector(
+                        models = models,
+                        selectedModel = selectedModel,
+                        onModelSelected = onModelSelected,
+                        onImportRequested = { documentPickerLauncher.launch(arrayOf("*/*")) },
+                        label = "Switch Active Local GGUF File"
+                    )
 
                     // Import Progress / Status Card
                     if (importProgress != null) {
@@ -662,150 +989,22 @@ fun SettingsScreen(
             }
         }
 
-        // 4. PRD ADDENDUM: Real-time System Resource & Performance Monitor
+        // 4. PRD ADDENDUM: Real-time System Resource & Performance Dashboard
         item {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                shape = RoundedCornerShape(16.dp)
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    // Header Row with Status Pulse Indicator
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                imageVector = Icons.Default.ShowChart,
-                                contentDescription = "Performance Graph",
-                                tint = MaterialTheme.colorScheme.primary
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = "RESOURCE & PERFORMANCE MONITOR",
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                        }
-
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Box(
-                                modifier = Modifier
-                                    .width(10.dp)
-                                    .height(10.dp)
-                                    .clip(CircleShape)
-                                    .background(if (isGenerating) Color(0xFF4ADE80) else Color(0xFF94A3B8))
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = if (isGenerating) "AI RUNNING" else "PAUSED (IDLE)",
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = if (isGenerating) Color(0xFF4ADE80) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                            )
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    // 2x2 Metrics Stat Grid
-                    val currentRamUsed = if (isGenerating) "4.6 GB / 8.0 GB" else "2.4 GB / 8.0 GB"
-                    val modelRamAlloc = "%.2f GB".format((selectedModel?.sizeBytes ?: 1_680_000_000L) / 1_000_000_000.0)
-                    val cpuLoadPct = if (isGenerating) "${cpuHistory.lastOrNull()?.toInt() ?: 78}% (4 Cores)" else "8% (Idle)"
-                    val tpsSpeed = "${"%.1f".format(generationProgress?.speedTokensPerSec ?: (if (isGenerating) 18.4f else 0.0f))} t/s"
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        StatMetricTile(
-                            title = "RAM USAGE",
-                            value = currentRamUsed,
-                            subtext = "System Allocation",
-                            modifier = Modifier.weight(1f)
-                        )
-                        StatMetricTile(
-                            title = "MODEL VRAM",
-                            value = modelRamAlloc,
-                            subtext = "mmap Weight Map",
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        StatMetricTile(
-                            title = "CPU / NDK LOAD",
-                            value = cpuLoadPct,
-                            subtext = "P-Threads Active",
-                            modifier = Modifier.weight(1f)
-                        )
-                        StatMetricTile(
-                            title = "INFERENCE SPEED",
-                            value = tpsSpeed,
-                            subtext = "Tokens Per Second",
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    Text(
-                        text = "Real-Time Memory & Inference Spike Graph",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+            PerformanceDashboard(
+                selectedModel = selectedModel,
+                diagnosticState = memoryCheckResult?.let {
+                    com.example.util.DiagnosticUtil.getDiagnosticState(
+                        context = androidx.compose.ui.platform.LocalContext.current,
+                        speedTokensPerSec = generationProgress?.speedTokensPerSec ?: (if (isGenerating) 18.5f else 0.0f),
+                        tokensGenerated = generationProgress?.tokensGenerated ?: 0,
+                        modelSizeBytes = selectedModel?.sizeBytes ?: 1_680_000_000L,
+                        modelName = selectedModel?.name ?: "Gemma-2B-Q4_K_M.gguf"
                     )
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    // Canvas Line Chart (Dynamic execution)
-                    val chartPrimaryColor = MaterialTheme.colorScheme.primary
-                    val chartGreenColor = Color(0xFF4ADE80)
-
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(120.dp)
-                            .background(Color(0xFF0F172A), shape = RoundedCornerShape(12.dp))
-                            .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f), RoundedCornerShape(12.dp))
-                            .padding(12.dp)
-                    ) {
-                        Canvas(modifier = Modifier.fillMaxSize()) {
-                            val width = size.width
-                            val height = size.height
-
-                            if (ramHistory.isNotEmpty()) {
-                                val path = Path()
-                                val stepX = width / (ramHistory.size - 1).coerceAtLeast(1)
-
-                                ramHistory.forEachIndexed { index, value ->
-                                    val x = index * stepX
-                                    val y = height - ((value / 100f) * height)
-                                    if (index == 0) {
-                                        path.moveTo(x, y)
-                                    } else {
-                                        path.lineTo(x, y)
-                                    }
-                                }
-
-                                drawPath(
-                                    path = path,
-                                    color = if (isGenerating) chartGreenColor else chartPrimaryColor,
-                                    style = Stroke(width = 3.dp.toPx())
-                                )
-                            }
-                        }
-                    }
-                }
-            }
+                },
+                generationProgress = generationProgress,
+                isGenerating = isGenerating
+            )
         }
 
         // 5. In-App Performance Debugging Overlay (Developer HUD) Toggle
@@ -842,6 +1041,72 @@ fun SettingsScreen(
                         Switch(
                             checked = isHudEnabled,
                             onCheckedChange = onToggleHud
+                        )
+                    }
+                }
+            }
+        }
+
+        // 6. Global Editor Auto-Save & Data Protection Setting
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                shape = RoundedCornerShape(16.dp)
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(imageVector = Icons.Default.SdStorage, contentDescription = "Auto-Save Setting", tint = MaterialTheme.colorScheme.primary)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Column {
+                                Text(
+                                    text = "GLOBAL EDITOR AUTO-SAVE",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Text(
+                                    text = "Automatically persist code edits to local database to prevent accidental data loss",
+                                    fontSize = 10.sp,
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                                )
+                            }
+                        }
+
+                        Switch(
+                            checked = isAutoSaveEnabled,
+                            onCheckedChange = onToggleAutoSave,
+                            modifier = Modifier.testTag("toggle_auto_save_switch")
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(
+                                if (isAutoSaveEnabled) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f) else MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f),
+                                shape = RoundedCornerShape(8.dp)
+                            )
+                            .padding(8.dp)
+                    ) {
+                        Text(
+                            text = if (isAutoSaveEnabled)
+                                "✓ Auto-save active: Code changes are saved automatically every 30s and on typing."
+                            else
+                                "⚠️ Auto-save disabled: Manual save is required in the editor to persist changes.",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = if (isAutoSaveEnabled) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onErrorContainer
                         )
                     }
                 }
