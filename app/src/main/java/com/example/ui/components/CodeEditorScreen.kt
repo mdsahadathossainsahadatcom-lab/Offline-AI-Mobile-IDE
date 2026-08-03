@@ -1665,7 +1665,7 @@ class SyntaxHighlightTransformation(
     }
 }
 
-private fun highlightSyntax(
+fun highlightSyntax(
     code: String,
     path: String,
     searchQuery: String = "",
