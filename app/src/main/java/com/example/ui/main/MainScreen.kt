@@ -25,6 +25,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -45,6 +48,7 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Smartphone
 import com.example.ui.components.DiagnosticPanel
+import com.example.ui.components.GitHubDiagnosticPanel
 import com.example.util.DiagnosticUtil
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
@@ -81,6 +85,7 @@ import kotlinx.coroutines.launch
 import com.example.data.db.ChatSessionEntity
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -143,6 +148,8 @@ fun MainScreen(viewModel: IdeViewModel) {
     val aiProviderSettings by viewModel.aiProviderSettings.collectAsState()
     val isTestingCloudConnection by viewModel.isTestingCloudConnection.collectAsState()
     val cloudTestResult by viewModel.cloudTestResult.collectAsState()
+    val branches by viewModel.branches.collectAsState()
+    val currentBranch by viewModel.currentBranch.collectAsState()
     var isFullScreenEditor by remember { mutableStateOf(false) }
 
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
@@ -150,9 +157,16 @@ fun MainScreen(viewModel: IdeViewModel) {
     var sessionToRename by remember { mutableStateOf<ChatSessionEntity?>(null) }
     var renameInputText by remember { mutableStateOf("") }
     var sessionToDelete by remember { mutableStateOf<ChatSessionEntity?>(null) }
+    var showGitHubDiagnosticDialog by remember { mutableStateOf(false) }
 
     val context = androidx.compose.ui.platform.LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
+    val focusManager = LocalFocusManager.current
+
+    // Automatically dismiss soft keyboard when navigating between tabs
+    LaunchedEffect(navScreen) {
+        focusManager.clearFocus()
+    }
 
     val saveableStateHolder = rememberSaveableStateHolder()
 
@@ -218,37 +232,6 @@ fun MainScreen(viewModel: IdeViewModel) {
                             .fillMaxSize()
                             .padding(16.dp)
                     ) {
-                        // Local GGUF Model Selector in Sidebar Drawer
-                        Card(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .testTag("sidebar_gguf_model_card"),
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-                            shape = RoundedCornerShape(12.dp)
-                        ) {
-                            Column(modifier = Modifier.padding(10.dp)) {
-                                Text(
-                                    text = "ACTIVE GGUF MODEL FILE",
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.primary
-                                )
-                                Spacer(modifier = Modifier.height(6.dp))
-                                GgufModelDropdownSelector(
-                                    models = allModels,
-                                    selectedModel = selectedModel,
-                                    onModelSelected = { viewModel.selectModelProfile(it) },
-                                    onImportRequested = { ggufPickerLauncher.launch(arrayOf("*/*")) },
-                                    label = "Select GGUF File",
-                                    showDetailsSupportingText = false
-                                )
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(14.dp))
-                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-                        Spacer(modifier = Modifier.height(14.dp))
-
                         // Drawer Header
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -600,6 +583,11 @@ fun MainScreen(viewModel: IdeViewModel) {
                     .fillMaxSize()
                     .padding(adjustedPadding)
                     .imePadding()
+                    .pointerInput(Unit) {
+                        detectTapGestures(onTap = {
+                            focusManager.clearFocus()
+                        })
+                    }
             ) {
                 saveableStateHolder.SaveableStateProvider(key = navScreen) {
                     when (navScreen) {
@@ -631,6 +619,10 @@ fun MainScreen(viewModel: IdeViewModel) {
                             },
                             onImportZip = {
                                 zipPickerLauncher.launch("application/zip")
+                            },
+                            onOpenGitHubDiagnostics = {
+                                drawerScope.launch { drawerState.close() }
+                                showGitHubDiagnosticDialog = true
                             }
                         )
 
@@ -643,6 +635,11 @@ fun MainScreen(viewModel: IdeViewModel) {
                             isAutoSaveEnabled = isAutoSaveEnabled,
                             terminalLogs = terminalLogs,
                             allProjectFiles = projectFiles,
+                            branches = branches,
+                            currentBranchName = currentBranch,
+                            onCreateBranch = { name, base -> viewModel.createBranch(name, base) },
+                            onSwitchBranch = { viewModel.switchBranch(it) },
+                            onDeleteBranch = { viewModel.deleteBranch(it) },
                             onTabSelected = { viewModel.selectTab(it) },
                             onTabClosed = { viewModel.closeTab(it) },
                             onCodeChanged = { viewModel.updateCodeContent(it) },
@@ -817,6 +814,29 @@ fun MainScreen(viewModel: IdeViewModel) {
                             TextButton(onClick = { sessionToDelete = null }) {
                                 Text("Cancel")
                             }
+                        }
+                    )
+                }
+
+                if (showGitHubDiagnosticDialog) {
+                    AlertDialog(
+                        onDismissRequest = { showGitHubDiagnosticDialog = false },
+                        confirmButton = {
+                            Button(onClick = { showGitHubDiagnosticDialog = false }) {
+                                Text("Close Panel")
+                            }
+                        },
+                        text = {
+                            GitHubDiagnosticPanel(
+                                activeProjectName = activeProject?.title ?: "Offline-AI-Mobile-IDE",
+                                projectFilesMap = filesMap,
+                                onClose = { showGitHubDiagnosticDialog = false },
+                                branches = branches,
+                                currentBranchName = currentBranch,
+                                onCreateBranch = { name, base -> viewModel.createBranch(name, base) },
+                                onSwitchBranch = { viewModel.switchBranch(it) },
+                                onDeleteBranch = { viewModel.deleteBranch(it) }
+                            )
                         }
                     )
                 }

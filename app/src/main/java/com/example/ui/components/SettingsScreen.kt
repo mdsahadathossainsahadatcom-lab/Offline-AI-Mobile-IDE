@@ -12,11 +12,13 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -38,6 +40,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -82,6 +85,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.db.ModelProfileEntity
@@ -523,16 +527,19 @@ fun SettingsScreen(
                 shape = RoundedCornerShape(16.dp)
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
-                    // Header Row
+                    // Header Row with weight(1f) left column and compact right-side controls
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+                        Row(
+                            modifier = Modifier.weight(1f),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
                             Icon(imageVector = Icons.Default.SdStorage, contentDescription = "GGUF Storage", tint = MaterialTheme.colorScheme.primary)
                             Spacer(modifier = Modifier.width(8.dp))
-                            Column {
+                            Column(modifier = Modifier.weight(1f)) {
                                 Text(
                                     text = "GGUF MODEL FILE SYSTEM",
                                     fontSize = 14.sp,
@@ -547,7 +554,13 @@ fun SettingsScreen(
                             }
                         }
 
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Spacer(modifier = Modifier.width(8.dp))
+
+                        Row(
+                            modifier = Modifier.wrapContentSize(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
                             OutlinedButton(
                                 onClick = { showModelManagerModal = true },
                                 shape = RoundedCornerShape(12.dp),
@@ -578,36 +591,46 @@ fun SettingsScreen(
                             .background(MaterialTheme.colorScheme.surfaceVariant, shape = RoundedCornerShape(12.dp))
                             .padding(12.dp)
                     ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column {
-                                Text(
-                                    text = "LOCAL MODEL STORAGE OCCUPIED",
-                                    fontSize = 9.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.primary
-                                )
-                                Text(
-                                    text = "$formattedTotalSize across ${models.size} models",
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
+                        Column {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column {
+                                    Text(
+                                        text = "LOCAL MODEL STORAGE OCCUPIED",
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                    Text(
+                                        text = "$formattedTotalSize across ${models.size} models",
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
+
+                                Box(
+                                    modifier = Modifier
+                                        .background(MaterialTheme.colorScheme.primaryContainer, shape = RoundedCornerShape(8.dp))
+                                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                                ) {
+                                    Text(
+                                        text = "100% OFFLINE / NDK",
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                                    )
+                                }
                             }
 
-                            Box(
-                                modifier = Modifier
-                                    .background(MaterialTheme.colorScheme.primaryContainer, shape = RoundedCornerShape(8.dp))
-                                    .padding(horizontal = 8.dp, vertical = 4.dp)
-                            ) {
-                                Text(
-                                    text = "100% OFFLINE / NDK",
-                                    fontSize = 9.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                            if (models.isNotEmpty()) {
+                                Spacer(modifier = Modifier.height(10.dp))
+                                ModelStorageBarChart(
+                                    modelSizeBytes = totalGgufBytes,
+                                    barColor = MaterialTheme.colorScheme.secondary
                                 )
                             }
                         }
@@ -711,63 +734,100 @@ fun SettingsScreen(
                                     .fillMaxWidth()
                                     .padding(vertical = 4.dp),
                                 colors = CardDefaults.cardColors(
-                                    containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.8f) else MaterialTheme.colorScheme.surfaceVariant
+                                    containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f) else MaterialTheme.colorScheme.surfaceVariant
                                 ),
                                 shape = RoundedCornerShape(12.dp)
                             ) {
                                 Column(modifier = Modifier.padding(12.dp)) {
+                                    // Top Header Row (Title + Status Badge + Radio Button Selector)
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
                                     ) {
-                                        Column(modifier = Modifier.weight(1f)) {
-                                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                                Text(
-                                                    text = model.name,
-                                                    fontSize = 13.sp,
-                                                    fontWeight = FontWeight.Bold,
-                                                    color = MaterialTheme.colorScheme.onSurface
-                                                )
-                                                Spacer(modifier = Modifier.width(6.dp))
-                                                if (isSelected) {
-                                                    Box(
-                                                        modifier = Modifier
-                                                            .background(Color(0xFF15803D), shape = RoundedCornerShape(6.dp))
-                                                            .padding(horizontal = 6.dp, vertical = 2.dp)
-                                                    ) {
-                                                        Text("LOADED FOR INFERENCE", fontSize = 8.sp, fontWeight = FontWeight.Bold, color = Color.White)
-                                                    }
-                                                } else if (!model.path.startsWith("internal://")) {
-                                                    Box(
-                                                        modifier = Modifier
-                                                            .background(MaterialTheme.colorScheme.secondaryContainer, shape = RoundedCornerShape(6.dp))
-                                                            .padding(horizontal = 6.dp, vertical = 2.dp)
-                                                    ) {
-                                                        Text("LOCAL STORAGE", fontSize = 8.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSecondaryContainer)
-                                                    }
-                                                }
-                                            }
+                                        // Model Title (Title gets weight(1f) to wrap/ellipsize without overlapping badge or radio button)
+                                        Text(
+                                            text = model.name,
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.onSurface,
+                                            modifier = Modifier.weight(1f),
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
 
-                                            Spacer(modifier = Modifier.height(4.dp))
-                                            Text(
-                                                text = "SIZE: ${formatSizeBytes(model.sizeBytes)} • QUANT: ${model.quantType} • ARCH: ${model.architecture} • PARAMS: ${model.parameters}",
-                                                fontSize = 10.sp,
-                                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
-                                            )
-                                            Text(
-                                                text = "PATH: ${model.path}",
-                                                fontSize = 9.sp,
-                                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f),
-                                                maxLines = 1
-                                            )
+                                        // Status Badge
+                                        if (isSelected) {
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Surface(
+                                                color = Color(0xFF15803D),
+                                                shape = RoundedCornerShape(6.dp)
+                                            ) {
+                                                Text(
+                                                    text = "LOADED FOR INFERENCE",
+                                                    fontSize = 10.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = Color.White,
+                                                    maxLines = 1,
+                                                    softWrap = false,
+                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
+                                                )
+                                            }
+                                        } else if (!model.path.startsWith("internal://")) {
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Surface(
+                                                color = MaterialTheme.colorScheme.secondaryContainer,
+                                                shape = RoundedCornerShape(6.dp)
+                                            ) {
+                                                Text(
+                                                    text = "LOCAL STORAGE",
+                                                    fontSize = 10.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                                    maxLines = 1,
+                                                    softWrap = false,
+                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
+                                                )
+                                            }
                                         }
 
+                                        Spacer(modifier = Modifier.width(6.dp))
+
+                                        // Radio Button Selector
                                         RadioButton(
                                             selected = isSelected,
                                             onClick = { onModelSelected(model.id) }
                                         )
                                     }
+
+                                    // Model Metadata
+                                    Spacer(modifier = Modifier.height(8.dp))
+
+                                    Text(
+                                        text = "SIZE: ${formatSizeBytes(model.sizeBytes)} • QUANT: ${model.quantType} • ARCH: ${model.architecture} • PARAMS: ${model.parameters}",
+                                        fontSize = 10.sp,
+                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+
+                                    Spacer(modifier = Modifier.height(2.dp))
+
+                                    Text(
+                                        text = "PATH: ${model.path}",
+                                        fontSize = 9.sp,
+                                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+
+                                    Spacer(modifier = Modifier.height(8.dp))
+
+                                    // Horizontal bar chart showing model size relative to device storage capacity
+                                    ModelStorageBarChart(
+                                        modelSizeBytes = model.sizeBytes,
+                                        barColor = if (isSelected) Color(0xFF15803D) else MaterialTheme.colorScheme.primary
+                                    )
 
                                     Spacer(modifier = Modifier.height(8.dp))
                                     HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
@@ -836,7 +896,10 @@ fun SettingsScreen(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.weight(1f, fill = false)
+                        ) {
                             Icon(
                                 imageVector = Icons.Default.Tune,
                                 contentDescription = "Context Length",
@@ -847,9 +910,13 @@ fun SettingsScreen(
                                 text = "CONTEXT TOKEN CONTROLLER",
                                 fontSize = 14.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface
+                                color = MaterialTheme.colorScheme.onSurface,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
+
+                        Spacer(modifier = Modifier.width(8.dp))
 
                         Box(
                             modifier = Modifier
@@ -863,7 +930,9 @@ fun SettingsScreen(
                                 text = "$contextWindow Tokens",
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
                     }
@@ -989,6 +1058,11 @@ fun SettingsScreen(
             }
         }
 
+        // 3b. Real-time Device Performance & Thermal Status Section
+        item {
+            DevicePerformanceCard()
+        }
+
         // 4. PRD ADDENDUM: Real-time System Resource & Performance Dashboard
         item {
             PerformanceDashboard(
@@ -1004,6 +1078,15 @@ fun SettingsScreen(
                 },
                 generationProgress = generationProgress,
                 isGenerating = isGenerating
+            )
+        }
+
+        // 4b. GGUF Model Benchmarks (Speed & Latency Line Chart)
+        item {
+            ModelBenchmarksCard(
+                models = models,
+                selectedModel = selectedModel,
+                onSelectModel = { onModelSelected(it.id) }
             )
         }
 
@@ -1045,6 +1128,13 @@ fun SettingsScreen(
                     }
                 }
             }
+        }
+
+        // 5b. GitHub API & Repository Publishing Diagnostics Panel
+        item {
+            GitHubDiagnosticPanel(
+                activeProjectName = "Offline-AI-Mobile-IDE"
+            )
         }
 
         // 6. Global Editor Auto-Save & Data Protection Setting
@@ -1126,25 +1216,37 @@ fun SettingsScreen(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Column {
+                        Column(modifier = Modifier.weight(1f)) {
                             Text(
                                 text = "OFFLINE CHAT & AGENT HISTORY",
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface
+                                color = MaterialTheme.colorScheme.onSurface,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                             Text(
                                 text = "Persisted locally in Room SQLite Database",
                                 fontSize = 10.sp,
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
+
+                        Spacer(modifier = Modifier.width(8.dp))
 
                         OutlinedButton(
                             onClick = onClearHistory,
                             shape = RoundedCornerShape(8.dp)
                         ) {
-                            Text("Clear History", fontSize = 11.sp, color = MaterialTheme.colorScheme.error)
+                            Text(
+                                text = "Clear History",
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.error,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
                         }
                     }
                 }
@@ -1338,4 +1440,240 @@ private fun StatMetricTile(
         }
     }
 }
+
+@Composable
+fun ModelStorageBarChart(
+    modelSizeBytes: Long,
+    deviceStorageBytes: Long = remember {
+        try {
+            android.os.StatFs(android.os.Environment.getDataDirectory().path).totalBytes
+        } catch (e: Exception) {
+            128L * 1024 * 1024 * 1024
+        }
+    },
+    barColor: Color = MaterialTheme.colorScheme.primary,
+    modifier: Modifier = Modifier
+) {
+    val deviceBytesDouble = deviceStorageBytes.toDouble().coerceAtLeast(1.0)
+    val fraction = (modelSizeBytes.toDouble() / deviceBytesDouble).toFloat().coerceIn(0.012f, 1.0f)
+    val percentage = String.format("%.1f%%", (modelSizeBytes.toDouble() / deviceBytesDouble) * 100.0)
+    val formattedModelSize = formatSizeBytes(modelSizeBytes)
+    val formattedCapacity = formatSizeBytes(deviceStorageBytes)
+
+    Column(modifier = modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "STORAGE CAPACITY IMPACT",
+                fontSize = 9.sp,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+            )
+            Text(
+                text = "$formattedModelSize / $formattedCapacity ($percentage)",
+                fontSize = 9.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = barColor
+            )
+        }
+        Spacer(modifier = Modifier.height(4.dp))
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(6.dp)
+                .clip(CircleShape)
+                .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .fillMaxWidth(fraction)
+                    .clip(CircleShape)
+                    .background(barColor)
+            )
+        }
+    }
+}
+
+@Composable
+fun DevicePerformanceCard(
+    modifier: Modifier = Modifier
+) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var diagnosticState by remember {
+        mutableStateOf(com.example.util.DiagnosticUtil.getDiagnosticState(context))
+    }
+
+    LaunchedEffect(Unit) {
+        while (true) {
+            diagnosticState = com.example.util.DiagnosticUtil.getDiagnosticState(context)
+            delay(3000)
+        }
+    }
+
+    val totalRamGb = String.format("%.1f", diagnosticState.totalRamMb / 1024.0)
+    val availRamGb = String.format("%.1f", diagnosticState.availableRamMb / 1024.0)
+    val ramUsedFraction = if (diagnosticState.totalRamMb > 0) {
+        (diagnosticState.usedRamMb.toFloat() / diagnosticState.totalRamMb.toFloat()).coerceIn(0f, 1f)
+    } else 0f
+
+    val thermalCode = diagnosticState.thermalStatusCode
+    val thermalFraction = (thermalCode / 4.0f).coerceIn(0f, 1f)
+    val thermalColor = when {
+        thermalCode == 0 -> Color(0xFF22C55E)
+        thermalCode == 1 -> Color(0xFFEAB308)
+        thermalCode == 2 -> Color(0xFFF97316)
+        else -> Color(0xFFEF4444)
+    }
+
+    Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .testTag("device_performance_card"),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        shape = RoundedCornerShape(16.dp)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.Speed,
+                        contentDescription = "Device Performance",
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "DEVICE PERFORMANCE & THERMALS",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+
+                Box(
+                    modifier = Modifier
+                        .background(
+                            if (diagnosticState.isThrottling) Color(0xFF7F1D1D) else MaterialTheme.colorScheme.primaryContainer,
+                            shape = RoundedCornerShape(8.dp)
+                        )
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                ) {
+                    Text(
+                        text = if (diagnosticState.isThrottling) "THROTTLING" else "NOMINAL",
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = if (diagnosticState.isThrottling) Color(0xFFFCA5A5) else MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceAround,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Circular Progress 1: Available / Used RAM
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier.size(84.dp)
+                    ) {
+                        CircularProgressIndicator(
+                            progress = ramUsedFraction,
+                            modifier = Modifier.fillMaxSize(),
+                            color = if (ramUsedFraction > 0.85f) Color(0xFFEF4444) else MaterialTheme.colorScheme.primary,
+                            strokeWidth = 7.dp,
+                            trackColor = MaterialTheme.colorScheme.surfaceVariant
+                        )
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(
+                                text = "${diagnosticState.ramUsagePercent}%",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                text = "USED",
+                                fontSize = 8.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "Available RAM",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = "$availRamGb GB Free / $totalRamGb GB",
+                        fontSize = 10.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                // Circular Progress 2: Thermal Throttling Status
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier.size(84.dp)
+                    ) {
+                        CircularProgressIndicator(
+                            progress = if (thermalCode == 0) 0.15f else thermalFraction,
+                            modifier = Modifier.fillMaxSize(),
+                            color = thermalColor,
+                            strokeWidth = 7.dp,
+                            trackColor = MaterialTheme.colorScheme.surfaceVariant
+                        )
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(
+                                text = if (diagnosticState.batteryTempCelsius > 0) "${diagnosticState.batteryTempCelsius.toInt()}°C" else "32°C",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = thermalColor
+                            )
+                            Text(
+                                text = "TEMP",
+                                fontSize = 8.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "Thermal Status",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = diagnosticState.thermalStatusText,
+                        fontSize = 10.sp,
+                        color = thermalColor,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+            }
+        }
+    }
+}
+
 

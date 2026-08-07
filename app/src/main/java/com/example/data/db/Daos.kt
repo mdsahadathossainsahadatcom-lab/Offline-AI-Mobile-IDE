@@ -43,6 +43,9 @@ interface FileDao {
     @Update
     suspend fun updateFile(file: FileEntity)
 
+    @Delete
+    suspend fun deleteFile(file: FileEntity)
+
     @Query("DELETE FROM files WHERE projectId = :projectId AND path = :path")
     suspend fun deleteFileByPath(projectId: Long, path: String)
 
@@ -118,6 +121,9 @@ interface ChatMessageDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertMessage(message: ChatMessageEntity): Long
 
+    @Delete
+    suspend fun deleteMessage(message: ChatMessageEntity)
+
     @Query("DELETE FROM chat_messages WHERE sessionId = :sessionId")
     suspend fun clearMessagesForSession(sessionId: Long)
 }
@@ -129,6 +135,9 @@ interface AgentLogDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertLog(log: AgentLogEntity): Long
+
+    @Delete
+    suspend fun deleteLog(log: AgentLogEntity)
 
     @Query("DELETE FROM agent_logs WHERE sessionId = :sessionId")
     suspend fun clearLogsForSession(sessionId: Long)

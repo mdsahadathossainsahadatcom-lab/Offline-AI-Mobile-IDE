@@ -49,6 +49,16 @@ data class TerminalLogEntry(
 )
 
 @androidx.compose.runtime.Immutable
+data class GitBranch(
+    val name: String,
+    val isCurrent: Boolean = false,
+    val lastCommitHash: String = "a1b2c3d",
+    val lastCommitMessage: String = "Initial workspace setup",
+    val lastUpdated: String = "Just now",
+    val aheadBehind: String = "Up to date"
+)
+
+@androidx.compose.runtime.Immutable
 data class GgufImportProgress(
     val isImporting: Boolean = false,
     val fileName: String = "",
@@ -174,10 +184,80 @@ class IdeViewModel(application: Application) : AndroidViewModel(application) {
     private val _cloudTestResult = MutableStateFlow<String?>(null)
     val cloudTestResult: StateFlow<String?> = _cloudTestResult.asStateFlow()
 
+    private val _branches = MutableStateFlow<List<GitBranch>>(
+        listOf(
+            GitBranch(name = "main", isCurrent = true, lastCommitHash = "e8f1920", lastCommitMessage = "Update index.html layout & styles", lastUpdated = "2 mins ago", aheadBehind = "Up to date"),
+            GitBranch(name = "feature/responsive-ui", isCurrent = false, lastCommitHash = "c7d3412", lastCommitMessage = "Add flexbox containers for preview", lastUpdated = "1 hour ago", aheadBehind = "1 ahead"),
+            GitBranch(name = "dev", isCurrent = false, lastCommitHash = "b4a8901", lastCommitMessage = "Experimental CSS grid setup", lastUpdated = "Yesterday", aheadBehind = "2 behind")
+        )
+    )
+    val branches: StateFlow<List<GitBranch>> = _branches.asStateFlow()
+
+    private val _currentBranch = MutableStateFlow("main")
+    val currentBranch: StateFlow<String> = _currentBranch.asStateFlow()
+
+    fun switchBranch(branchName: String) {
+        val updated = _branches.value.map { branch ->
+            branch.copy(isCurrent = branch.name == branchName)
+        }
+        _branches.value = updated
+        _currentBranch.value = branchName
+        val timeStr = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())
+        addConsoleLog("[Git Engine] Switched working tree to branch '$branchName' at $timeStr")
+        addTerminalLog(TerminalSource.SYSTEM, TerminalStream.INFO, "[git checkout $branchName] Switched to branch '$branchName'")
+    }
+
+    fun createBranch(newBranchName: String, baseBranchName: String = "main"): Boolean {
+        val cleanName = newBranchName.trim().replace(" ", "-")
+        if (cleanName.isBlank()) return false
+        if (_branches.value.any { it.name.equals(cleanName, ignoreCase = true) }) return false
+
+        val newHash = java.util.UUID.randomUUID().toString().take(7)
+        val newBranch = GitBranch(
+            name = cleanName,
+            isCurrent = true,
+            lastCommitHash = newHash,
+            lastCommitMessage = "Branch created from '$baseBranchName'",
+            lastUpdated = "Just now",
+            aheadBehind = "1 ahead"
+        )
+
+        val updatedList = _branches.value.map { it.copy(isCurrent = false) } + newBranch
+        _branches.value = updatedList
+        _currentBranch.value = cleanName
+
+        val timeStr = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())
+        addConsoleLog("[Git Engine] Created & checked out branch '$cleanName' from '$baseBranchName' at $timeStr")
+        addTerminalLog(TerminalSource.SYSTEM, TerminalStream.INFO, "[git checkout -b $cleanName $baseBranchName] Switched to a new branch '$cleanName'")
+        return true
+    }
+
+    fun deleteBranch(branchName: String): Boolean {
+        val branch = _branches.value.firstOrNull { it.name == branchName } ?: return false
+        if (branch.isCurrent) return false
+        if (branch.name == "main" || branch.name == "master") return false
+
+        _branches.value = _branches.value.filter { it.name != branchName }
+        val timeStr = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())
+        addConsoleLog("[Git Engine] Deleted local branch '$branchName' at $timeStr")
+        addTerminalLog(TerminalSource.SYSTEM, TerminalStream.INFO, "[git branch -d $branchName] Deleted branch $branchName")
+        return true
+    }
+
     fun updateAiProviderSettings(settings: AiProviderSettings) {
         _aiProviderSettings.value = settings
         _cloudTestResult.value = null
         addConsoleLog("[Settings] AI Provider Mode updated to: ${settings.mode} (${if (settings.mode == AiProviderMode.CLOUD_API) settings.cloudProvider.displayName else "Local GGUF NDK"})")
+    }
+
+    fun publishProjectToGitHub(patToken: String, repoName: String, isPrivate: Boolean) {
+        viewModelScope.launch {
+            val proj = _activeProject.value ?: return@launch
+            val filesMap = _projectFiles.value.associate { it.path to it.content }
+            addConsoleLog("[GitHub Publish] Initiating GitHub API publish for '${proj.title}'...")
+            addTerminalLog(TerminalSource.SYSTEM, TerminalStream.INFO, "[GitHub Publish] Target Repo: $repoName")
+            com.example.util.GitHubLogger.publishRepositoryApi(patToken, repoName, proj.description, isPrivate, filesMap)
+        }
     }
 
     fun testCloudConnection() {
@@ -440,6 +520,8 @@ class IdeViewModel(application: Application) : AndroidViewModel(application) {
         return result
     }
 
+    private var autoSaveJob: kotlinx.coroutines.Job? = null
+
     init {
         viewModelScope.launch(Dispatchers.IO) {
             repository.ensureDefaultDataCreated()
@@ -450,22 +532,26 @@ class IdeViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
 
-        // Background Auto-Save Service: Persists active file every 30 seconds if auto-save is enabled
+        // Background Auto-Save Service: Persists active file every 15 seconds if auto-save is enabled
         viewModelScope.launch(Dispatchers.IO) {
             while (isActive) {
-                delay(30_000L) // 30-second interval
+                delay(15_000L) // 15-second interval
                 if (_isAutoSaveEnabled.value) {
-                    val proj = _activeProject.value
-                    val path = _activeTabPath.value
-                    val content = _activeCodeContent.value
-                    if (proj != null && path.isNotBlank() && content.isNotBlank()) {
-                        repository.saveFile(proj.id, path, content)
-                        val timeStr = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())
-                        _lastAutoSaveTime.value = timeStr
-                        addConsoleLog("[Auto-Save Service] Auto-saved '$path' to local storage at $timeStr")
-                    }
+                    persistActiveFileToRoom()
                 }
             }
+        }
+    }
+
+    private suspend fun persistActiveFileToRoom() {
+        val proj = _activeProject.value ?: return
+        val path = _activeTabPath.value
+        val content = _activeCodeContent.value
+        if (path.isNotBlank() && content.isNotBlank()) {
+            repository.saveFile(proj.id, path, content)
+            val timeStr = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())
+            _lastAutoSaveTime.value = timeStr
+            addConsoleLog("[Auto-Save Engine] Persisted '$path' to Room database at $timeStr")
         }
     }
 
@@ -481,17 +567,30 @@ class IdeViewModel(application: Application) : AndroidViewModel(application) {
         val path = _activeTabPath.value
         val content = _activeCodeContent.value
         if (path.isNotBlank()) {
-            viewModelScope.launch {
+            viewModelScope.launch(Dispatchers.IO) {
+                autoSaveJob?.cancel()
                 repository.saveFile(proj.id, path, content)
                 val timeStr = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())
                 _lastAutoSaveTime.value = timeStr
-                addConsoleLog("[Manual Save] Saved '$path' to local storage at $timeStr")
-                addTerminalLog(TerminalSource.SYSTEM, TerminalStream.INFO, "[Manual Save] Saved '$path' to local storage")
+                addConsoleLog("[Manual Save] Saved '$path' to Room database at $timeStr")
+                addTerminalLog(TerminalSource.SYSTEM, TerminalStream.INFO, "[Manual Save] Saved '$path' to Room database")
             }
         }
     }
 
     fun selectProject(project: ProjectEntity) {
+        // Persist current project file before switching
+        if (_activeProject.value != null && _isAutoSaveEnabled.value) {
+            val oldProj = _activeProject.value!!
+            val oldPath = _activeTabPath.value
+            val oldContent = _activeCodeContent.value
+            if (oldPath.isNotBlank()) {
+                viewModelScope.launch(Dispatchers.IO) {
+                    repository.saveFile(oldProj.id, oldPath, oldContent)
+                }
+            }
+        }
+
         _activeProject.value = project
         _activeSessionId.value = null
         _activeTheme.value = try {
@@ -532,6 +631,17 @@ class IdeViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun selectTab(path: String) {
+        // Immediately persist previous active tab content before switching
+        val proj = _activeProject.value
+        val oldPath = _activeTabPath.value
+        val oldContent = _activeCodeContent.value
+        if (proj != null && oldPath.isNotBlank() && _isAutoSaveEnabled.value) {
+            autoSaveJob?.cancel()
+            viewModelScope.launch(Dispatchers.IO) {
+                repository.saveFile(proj.id, oldPath, oldContent)
+            }
+        }
+
         if (path !in _openTabs.value) {
             _openTabs.value = _openTabs.value + path
         }
@@ -540,6 +650,15 @@ class IdeViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun closeTab(path: String) {
+        val proj = _activeProject.value
+        val currentContent = _activeCodeContent.value
+        if (proj != null && path == _activeTabPath.value && _isAutoSaveEnabled.value) {
+            autoSaveJob?.cancel()
+            viewModelScope.launch(Dispatchers.IO) {
+                repository.saveFile(proj.id, path, currentContent)
+            }
+        }
+
         val currentTabs = _openTabs.value
         if (currentTabs.size > 1) {
             val newTabs = currentTabs.filter { it != path }
@@ -556,7 +675,9 @@ class IdeViewModel(application: Application) : AndroidViewModel(application) {
         if (_isAutoSaveEnabled.value) {
             val proj = _activeProject.value ?: return
             val path = _activeTabPath.value
-            viewModelScope.launch {
+            autoSaveJob?.cancel()
+            autoSaveJob = viewModelScope.launch(Dispatchers.IO) {
+                delay(1200L) // Debounce rapid keystrokes to optimize Room database writes
                 repository.saveFile(proj.id, path, newContent)
                 val timeStr = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())
                 _lastAutoSaveTime.value = timeStr
@@ -790,9 +911,35 @@ class IdeViewModel(application: Application) : AndroidViewModel(application) {
 
     fun deleteFile(path: String) {
         val proj = _activeProject.value ?: return
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             repository.deleteFile(proj.id, path)
-            closeTab(path)
+            withContext(Dispatchers.Main) {
+                closeTab(path)
+            }
+        }
+    }
+
+    fun deleteProject(project: ProjectEntity) {
+        viewModelScope.launch(Dispatchers.IO) {
+            repository.deleteProject(project)
+            addConsoleLog("[Workspace] Deleted project '${project.title}' and all associated files.")
+            if (_activeProject.value?.id == project.id) {
+                val remaining = allProjects.value.filter { it.id != project.id }
+                if (remaining.isNotEmpty()) {
+                    selectProject(remaining.first())
+                } else {
+                    _activeProject.value = null
+                    _projectFiles.value = emptyList()
+                    _openTabs.value = emptyList()
+                    _activeTabPath.value = ""
+                    _activeCodeContent.value = ""
+                    _chatHistory.value = emptyList()
+                    _chatSessions.value = emptyList()
+                    _activeSessionId.value = null
+                    _sessionMessages.value = emptyList()
+                    _sessionAgentLogs.value = emptyList()
+                }
+            }
         }
     }
 
@@ -939,6 +1086,11 @@ class IdeViewModel(application: Application) : AndroidViewModel(application) {
                     repository.saveMultipleFiles(proj.id, progress.generatedFiles)
                 }
 
+                val extractedFileTags = extractFileTags(progress.rawLogText)
+                if (extractedFileTags.isNotEmpty()) {
+                    repository.saveMultipleFiles(proj.id, extractedFileTags)
+                }
+
                 if (progress.isComplete) {
                     _generationProgress.value = progress
                     _isGenerating.value = false
@@ -959,6 +1111,12 @@ class IdeViewModel(application: Application) : AndroidViewModel(application) {
                         "Generation complete for prompt: '$prompt'"
                     }
 
+                    val finalFileTags = extractFileTags(progress.rawLogText + "\n" + responseSummary)
+                    if (finalFileTags.isNotEmpty()) {
+                        repository.saveMultipleFiles(proj.id, finalFileTags)
+                        addConsoleLog("[Autonomous Agent Engine] Injected ${finalFileTags.size} extracted <file> block(s) directly into workspace files and persisted to Room DB.")
+                    }
+
                     repository.saveChatMessage(sessionId, "AI", responseSummary)
 
                     repository.addChatHistory(
@@ -970,10 +1128,24 @@ class IdeViewModel(application: Application) : AndroidViewModel(application) {
                         modelUsed = modelName
                     )
                     updateActiveCodeContent()
+                    persistActiveFileToRoom()
                 }
             }
         }
 
+    }
+
+    private fun extractFileTags(text: String): Map<String, String> {
+        val result = mutableMapOf<String, String>()
+        val regex = Regex("""<file\s+(?:name|path)=["']([^"']+)["']\s*>(.*?)</file>""", RegexOption.DOT_MATCHES_ALL)
+        regex.findAll(text).forEach { match ->
+            val name = match.groupValues[1].trim()
+            val content = match.groupValues[2]
+            if (name.isNotBlank()) {
+                result[name] = content
+            }
+        }
+        return result
     }
 
     /**
@@ -1062,6 +1234,14 @@ class IdeViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch(Dispatchers.IO) {
             repository.deleteModelProfile(model)
             addConsoleLog("[Model Manager] Deleted GGUF model '${model.name}' from device storage.")
+            val remaining = allModels.value.filter { it.id != model.id }
+            if (remaining.isNotEmpty()) {
+                if (model.isSelected || selectedModel.value?.id == model.id) {
+                    repository.selectModel(remaining.first().id)
+                }
+            } else {
+                repository.clearModelSelection()
+            }
         }
     }
 

@@ -50,6 +50,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.ArrowUpward
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Code
@@ -134,7 +135,12 @@ fun CodeEditorScreen(
     onSendTerminalCommand: (String) -> Unit = {},
     onCreateFile: (String, String?) -> Unit = { _, _ -> },
     onDeleteFile: (String) -> Unit = {},
-    onExportZip: () -> Unit = {}
+    onExportZip: () -> Unit = {},
+    branches: List<com.example.ui.viewmodel.GitBranch> = emptyList(),
+    currentBranchName: String = "main",
+    onCreateBranch: (String, String) -> Boolean = { _, _ -> true },
+    onSwitchBranch: (String) -> Unit = {},
+    onDeleteBranch: (String) -> Boolean = { true }
 ) {
     // File Explorer Side Panel State
     var isExplorerOpen by remember { mutableStateOf(false) }
@@ -448,6 +454,17 @@ fun CodeEditorScreen(
                         Spacer(modifier = Modifier.width(3.dp))
                         Text("Save", fontSize = 10.sp, fontWeight = FontWeight.Bold)
                     }
+                }
+
+                if (branches.isNotEmpty()) {
+                    Spacer(modifier = Modifier.width(4.dp))
+                    GitBranchSelectorChip(
+                        currentBranchName = currentBranchName,
+                        branches = branches,
+                        onCreateBranch = onCreateBranch,
+                        onSwitchBranch = onSwitchBranch,
+                        onDeleteBranch = onDeleteBranch
+                    )
                 }
 
                 IconButton(
@@ -1024,7 +1041,12 @@ fun CodeEditorScreen(
                         },
                         onCreateFile = onCreateFile,
                         onDeleteFile = onDeleteFile,
-                        isCompact = true
+                        isCompact = true,
+                        branches = branches,
+                        currentBranchName = currentBranchName,
+                        onCreateBranch = onCreateBranch,
+                        onSwitchBranch = onSwitchBranch,
+                        onDeleteBranch = onDeleteBranch
                     )
                 }
             }
@@ -1552,6 +1574,104 @@ fun CodeEditorScreen(
                                 modifier = Modifier.size(16.dp)
                             )
                         }
+                    }
+                }
+            }
+        }
+
+        AnimatedVisibility(
+            visible = !isTerminalOpen,
+            enter = expandVertically() + fadeIn(),
+            exit = shrinkVertically() + fadeOut()
+        ) {
+            // Collapsed Terminal Dock Bar at the bottom of editor
+            Surface(
+                onClick = { isTerminalOpen = true },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 4.dp, vertical = 2.dp)
+                    .testTag("expand_terminal_bottom_bar"),
+                color = Color(0xFF090D16),
+                border = androidx.compose.foundation.BorderStroke(
+                    1.dp,
+                    Color(0xFF1E293B)
+                ),
+                shape = RoundedCornerShape(8.dp)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(8.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFF22C55E))
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Icon(
+                            imageVector = Icons.Default.Code,
+                            contentDescription = "Terminal Console",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "Terminal Console",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Monospace,
+                            color = Color.White
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        if (terminalLogs.isNotEmpty()) {
+                            val lastLog = terminalLogs.last()
+                            Text(
+                                text = "• ${lastLog.message}",
+                                fontSize = 10.sp,
+                                fontFamily = FontFamily.Monospace,
+                                color = Color(0xFF94A3B8),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        } else {
+                            Text(
+                                text = "• System ready",
+                                fontSize = 10.sp,
+                                fontFamily = FontFamily.Monospace,
+                                color = Color(0xFF64748B)
+                            )
+                        }
+                    }
+
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Surface(
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f),
+                            modifier = Modifier.height(20.dp)
+                        ) {
+                            Text(
+                                text = "${terminalLogs.size} logs",
+                                fontSize = 9.sp,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                fontFamily = FontFamily.Monospace
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Icon(
+                            imageVector = Icons.Default.ArrowUpward,
+                            contentDescription = "Expand Terminal Console",
+                            tint = Color.White.copy(alpha = 0.8f),
+                            modifier = Modifier.size(16.dp)
+                        )
                     }
                 }
             }

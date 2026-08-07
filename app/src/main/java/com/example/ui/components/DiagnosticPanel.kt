@@ -55,6 +55,7 @@ fun DiagnosticPanel(
     modifier: Modifier = Modifier,
     isExpandedDefault: Boolean = true
 ) {
+    var panelMode by remember { mutableStateOf(0) } // 0 = Hardware & NDK, 1 = GitHub API Diagnostics
     var showChartDashboard by remember { mutableStateOf(false) }
     val totalRamGb = "%.1f GB".format(diagnosticState.totalRamMb / 1024.0)
     val availRamGb = "%.1f GB".format(diagnosticState.availableRamMb / 1024.0)
@@ -81,52 +82,89 @@ fun DiagnosticPanel(
         shape = RoundedCornerShape(16.dp)
     ) {
         Column(modifier = Modifier.padding(14.dp)) {
-            // Panel Header Title & Active Status Dot
+            // Mode Switcher Header Bar
             Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 10.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        modifier = Modifier
-                            .size(10.dp)
-                            .clip(CircleShape)
-                            .background(if (isGenerating) Color(0xFF4ADE80) else Color(0xFF38BDF8))
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = if (isGenerating) "LLM DIAGNOSTIC MONITOR (ACTIVE)" else "HARDWARE & INFERENCE DIAGNOSTICS",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        fontFamily = FontFamily.Monospace,
-                        color = Color.White
-                    )
+                androidx.compose.material3.Button(
+                    onClick = { panelMode = 0 },
+                    colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                        containerColor = if (panelMode == 0) Color(0xFF38BDF8) else Color(0xFF1E293B),
+                        contentColor = if (panelMode == 0) Color(0xFF0F172A) else Color.White
+                    ),
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text("⚙️ HARDWARE & NDK", fontSize = 10.sp, fontWeight = FontWeight.Bold)
                 }
 
-                Box(
-                    modifier = Modifier
-                        .background(thermalColor.copy(alpha = 0.2f), shape = RoundedCornerShape(6.dp))
-                        .border(1.dp, thermalColor, shape = RoundedCornerShape(6.dp))
-                        .padding(horizontal = 8.dp, vertical = 3.dp)
+                androidx.compose.material3.Button(
+                    onClick = { panelMode = 1 },
+                    colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                        containerColor = if (panelMode == 1) Color(0xFF38BDF8) else Color(0xFF1E293B),
+                        contentColor = if (panelMode == 1) Color(0xFF0F172A) else Color.White
+                    ),
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.weight(1f)
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = if (diagnosticState.isThrottling) Icons.Default.Warning else Icons.Default.CheckCircle,
-                            contentDescription = "Thermal Status",
-                            tint = thermalColor,
-                            modifier = Modifier.size(12.dp)
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            text = diagnosticState.thermalStatusText.uppercase(),
-                            fontSize = 9.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = thermalColor
-                        )
-                    }
+                    Text("🐙 GITHUB API & CI", fontSize = 10.sp, fontWeight = FontWeight.Bold)
                 }
             }
+
+            if (panelMode == 1) {
+                GitHubDiagnosticPanel(
+                    activeProjectName = "Offline-AI-Mobile-IDE"
+                )
+            } else {
+                // Panel Header Title & Active Status Dot
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .size(10.dp)
+                                .clip(CircleShape)
+                                .background(if (isGenerating) Color(0xFF4ADE80) else Color(0xFF38BDF8))
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = if (isGenerating) "LLM DIAGNOSTIC MONITOR (ACTIVE)" else "HARDWARE & INFERENCE DIAGNOSTICS",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Monospace,
+                            color = Color.White
+                        )
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .background(thermalColor.copy(alpha = 0.2f), shape = RoundedCornerShape(6.dp))
+                            .border(1.dp, thermalColor, shape = RoundedCornerShape(6.dp))
+                            .padding(horizontal = 8.dp, vertical = 3.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = if (diagnosticState.isThrottling) Icons.Default.Warning else Icons.Default.CheckCircle,
+                                contentDescription = "Thermal Status",
+                                tint = thermalColor,
+                                modifier = Modifier.size(12.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = diagnosticState.thermalStatusText.uppercase(),
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = thermalColor
+                            )
+                        }
+                    }
+                }
 
             Spacer(modifier = Modifier.height(12.dp))
 
@@ -337,6 +375,7 @@ fun DiagnosticPanel(
                         isGenerating = isGenerating
                     )
                 }
+            }
             }
         }
     }

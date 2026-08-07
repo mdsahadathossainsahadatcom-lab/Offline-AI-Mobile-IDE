@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -54,6 +55,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.db.FileEntity
@@ -76,7 +78,8 @@ fun WorkspaceDrawerScreen(
     onInsertTemplate: (String) -> Unit,
     onReplaceWithTemplate: (String) -> Unit,
     onExportZip: () -> Unit = {},
-    onImportZip: () -> Unit = {}
+    onImportZip: () -> Unit = {},
+    onOpenGitHubDiagnostics: () -> Unit = {}
 ) {
     var selectedDrawerTab by remember { mutableStateOf(0) } // 0 = Files & Workspaces, 1 = Boilerplate Library
     var selectedLanguageFilter by remember { mutableStateOf("ALL") } // ALL, HTML, CSS, JS
@@ -151,37 +154,67 @@ fun WorkspaceDrawerScreen(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                imageVector = Icons.Default.Workspaces,
-                                contentDescription = "Workspace",
-                                tint = MaterialTheme.colorScheme.primary
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
+                        // Left text container with weight(1f) to claim horizontal space
+                        Column(
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.Workspaces,
+                                    contentDescription = "Workspace",
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = activeProject?.title ?: "Workspace",
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+
                             Text(
-                                text = activeProject?.title ?: "Workspace",
-                                fontSize = 18.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface
+                                text = activeProject?.description ?: "Offline Local AI Workspace",
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.padding(top = 4.dp)
                             )
                         }
 
+                        Spacer(modifier = Modifier.width(12.dp))
+
+                        // Compact horizontal "+ New Project" button
                         Button(
                             onClick = { isNewProjectDialogOpen = true },
-                            shape = RoundedCornerShape(12.dp)
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.height(40.dp)
                         ) {
-                            Icon(imageVector = Icons.Default.Add, contentDescription = "New Project")
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("New Project", fontSize = 12.sp)
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Add,
+                                    contentDescription = "New Project",
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = "New Project",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    maxLines = 1
+                                )
+                            }
                         }
                     }
 
-                    Text(
-                        text = activeProject?.description ?: "Offline Local AI Workspace",
-                        fontSize = 13.sp,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
-                        modifier = Modifier.padding(top = 4.dp, bottom = 12.dp)
-                    )
+                    Spacer(modifier = Modifier.height(16.dp))
 
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -202,6 +235,17 @@ fun WorkspaceDrawerScreen(
                         ) {
                             Text("📥 Import .Zip", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                         }
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Button(
+                        onClick = onOpenGitHubDiagnostics,
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primaryContainer, contentColor = MaterialTheme.colorScheme.onPrimaryContainer),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("🐙 GitHub Publish & CI Diagnostics", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                     }
                 }
             }

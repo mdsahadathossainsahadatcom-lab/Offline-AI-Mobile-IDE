@@ -104,10 +104,17 @@ class WorkspaceRepository(private val context: Context) {
 
     suspend fun clearHistoryForProject(projectId: Long) {
         chatHistoryDao.clearHistoryForProject(projectId)
+        val sessions = chatSessionDao.getSessionsForProject(projectId).first()
+        sessions.forEach { session ->
+            chatMessageDao.clearMessagesForSession(session.sessionId)
+            agentLogDao.clearLogsForSession(session.sessionId)
+        }
         chatSessionDao.deleteSessionsForProject(projectId)
     }
 
     suspend fun deleteSession(session: com.example.data.db.ChatSessionEntity) {
+        chatMessageDao.clearMessagesForSession(session.sessionId)
+        agentLogDao.clearLogsForSession(session.sessionId)
         chatSessionDao.deleteSession(session)
     }
 
@@ -179,6 +186,14 @@ class WorkspaceRepository(private val context: Context) {
     }
 
     suspend fun deleteProject(project: ProjectEntity) {
+        fileDao.deleteAllFilesForProject(project.id)
+        chatHistoryDao.clearHistoryForProject(project.id)
+        val sessions = chatSessionDao.getSessionsForProject(project.id).first()
+        sessions.forEach { session ->
+            chatMessageDao.clearMessagesForSession(session.sessionId)
+            agentLogDao.clearLogsForSession(session.sessionId)
+        }
+        chatSessionDao.deleteSessionsForProject(project.id)
         projectDao.deleteProject(project)
         val dir = File(context.filesDir, "workspace_${project.id}")
         if (dir.exists()) {
@@ -351,6 +366,10 @@ class WorkspaceRepository(private val context: Context) {
         modelProfileDao.selectModel(id)
     }
 
+    suspend fun clearModelSelection() {
+        modelProfileDao.clearSelection()
+    }
+
     private fun writeToStorageFile(projectId: Long, relativePath: String, content: String) {
         try {
             val projectDir = File(context.filesDir, "workspace_$projectId")
@@ -438,6 +457,11 @@ class WorkspaceRepository(private val context: Context) {
     }
 
     suspend fun ensureDefaultDataCreated() {
+        val prefs = context.getSharedPreferences("app_settings", Context.MODE_PRIVATE)
+        if (prefs.getBoolean("default_data_created", false)) {
+            return
+        }
+
         val existingProjects = allProjects.first()
         if (existingProjects.isEmpty()) {
             val pId = createProject(
@@ -594,5 +618,7 @@ console.log('App initialized on Local AI IDE.');
                 contextWindow = 8192
             )
         }
+
+        prefs.edit().putBoolean("default_data_created", true).apply()
     }
 }

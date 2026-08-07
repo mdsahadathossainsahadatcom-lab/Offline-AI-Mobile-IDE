@@ -47,7 +47,7 @@ class LocalInferenceEngine {
      */
     fun getOptimalThreadCount(): Int {
         val cores = Runtime.getRuntime().availableProcessors()
-        return (cores - 2).coerceAtLeast(1)
+        return (cores - 1).coerceAtLeast(1)
     }
 
     /**

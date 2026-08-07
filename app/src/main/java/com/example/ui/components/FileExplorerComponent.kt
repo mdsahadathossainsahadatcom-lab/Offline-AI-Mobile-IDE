@@ -56,6 +56,19 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.db.FileEntity
 
+private fun getFileEmoji(path: String): String {
+    return when {
+        path.endsWith(".html", ignoreCase = true) || path.endsWith(".htm", ignoreCase = true) -> "🌐"
+        path.endsWith(".css", ignoreCase = true) -> "🎨"
+        path.endsWith(".js", ignoreCase = true) || path.endsWith(".ts", ignoreCase = true) -> "⚡"
+        path.endsWith(".py", ignoreCase = true) -> "🐍"
+        path.endsWith(".json", ignoreCase = true) -> "📦"
+        path.endsWith(".md", ignoreCase = true) -> "📝"
+        path.endsWith(".txt", ignoreCase = true) -> "📄"
+        else -> "📄"
+    }
+}
+
 @Composable
 fun FileExplorerComponent(
     files: List<FileEntity>,
@@ -64,7 +77,12 @@ fun FileExplorerComponent(
     onCreateFile: (String, String?) -> Unit,
     onDeleteFile: (String) -> Unit,
     modifier: Modifier = Modifier,
-    isCompact: Boolean = false
+    isCompact: Boolean = false,
+    branches: List<com.example.ui.viewmodel.GitBranch> = emptyList(),
+    currentBranchName: String = "main",
+    onCreateBranch: (String, String) -> Boolean = { _, _ -> true },
+    onSwitchBranch: (String) -> Unit = {},
+    onDeleteBranch: (String) -> Boolean = { true }
 ) {
     var searchQuery by remember { mutableStateOf("") }
     var isNewFileDialogOpen by remember { mutableStateOf(false) }
@@ -211,17 +229,30 @@ fun FileExplorerComponent(
                 }
             }
 
-            IconButton(
-                onClick = { isNewFileDialogOpen = true },
-                modifier = Modifier
-                    .size(32.dp)
-                    .testTag("create_new_file_button")
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Add,
-                    contentDescription = "New File",
-                    tint = MaterialTheme.colorScheme.primary
-                )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (branches.isNotEmpty()) {
+                    GitBranchSelectorChip(
+                        currentBranchName = currentBranchName,
+                        branches = branches,
+                        onCreateBranch = onCreateBranch,
+                        onSwitchBranch = onSwitchBranch,
+                        onDeleteBranch = onDeleteBranch
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                }
+
+                IconButton(
+                    onClick = { isNewFileDialogOpen = true },
+                    modifier = Modifier
+                        .size(32.dp)
+                        .testTag("create_new_file_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Add,
+                        contentDescription = "New File",
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                }
             }
         }
 
@@ -395,18 +426,5 @@ fun FileExplorerComponent(
                 }
             }
         }
-    }
-}
-
-fun getFileEmoji(path: String): String {
-    return when {
-        path.endsWith(".html", ignoreCase = true) || path.endsWith(".htm", ignoreCase = true) -> "🌐"
-        path.endsWith(".css", ignoreCase = true) -> "🎨"
-        path.endsWith(".js", ignoreCase = true) || path.endsWith(".ts", ignoreCase = true) -> "⚡"
-        path.endsWith(".py", ignoreCase = true) -> "🐍"
-        path.endsWith(".json", ignoreCase = true) -> "📦"
-        path.endsWith(".md", ignoreCase = true) -> "📝"
-        path.endsWith(".txt", ignoreCase = true) -> "📄"
-        else -> "📄"
     }
 }

@@ -12,8 +12,10 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -242,6 +244,14 @@ fun GgufModelManagerScreen(
                                     )
                                 }
                             }
+                        }
+
+                        if (models.isNotEmpty()) {
+                            Spacer(modifier = Modifier.height(14.dp))
+                            ModelStorageBarChart(
+                                modelSizeBytes = totalSizeBytes,
+                                barColor = MaterialTheme.colorScheme.secondary
+                            )
                         }
 
                         Spacer(modifier = Modifier.height(16.dp))
@@ -627,6 +637,14 @@ fun GgufModelManagerScreen(
                                 )
                             }
 
+                            Spacer(modifier = Modifier.height(10.dp))
+
+                            // Horizontal bar chart showing model size relative to device storage capacity
+                            ModelStorageBarChart(
+                                modelSizeBytes = model.sizeBytes,
+                                barColor = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary
+                            )
+
                             Spacer(modifier = Modifier.height(12.dp))
                             HorizontalDivider()
                             Spacer(modifier = Modifier.height(8.dp))
@@ -698,6 +716,16 @@ fun GgufModelManagerScreen(
                         }
                     }
                 }
+            }
+
+            // Model Performance & Inference Speed Benchmarks
+            item {
+                Spacer(modifier = Modifier.height(8.dp))
+                ModelBenchmarksCard(
+                    models = models,
+                    selectedModel = selectedModel,
+                    onSelectModel = { onModelSelected(it.id) }
+                )
             }
         }
     }
