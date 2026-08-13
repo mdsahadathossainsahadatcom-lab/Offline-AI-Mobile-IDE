@@ -255,6 +255,7 @@ class CloudInferenceEngine {
 
         return """
             System Directive: You are an expert AI software developer embedded in a local IDE.
+            You are fully optimized to understand and respond in Bengali when the user speaks Bengali. However, maintain all internal system tags (like <think> or <tool_call>) strictly in English.
             Provide clear code or answers. When updating files, wrap code blocks using markdown with filename hints like ```html:index.html or ```css:style.css or ```js:script.js.
             
             $filesContext

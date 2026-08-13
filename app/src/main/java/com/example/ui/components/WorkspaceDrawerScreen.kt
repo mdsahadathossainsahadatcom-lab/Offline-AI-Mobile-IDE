@@ -1,9 +1,12 @@
 package com.example.ui.components
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -39,6 +42,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
@@ -74,7 +78,7 @@ fun WorkspaceDrawerScreen(
     onSelectFile: (String) -> Unit,
     onCreateFile: (String, String?) -> Unit,
     onDeleteFile: (String) -> Unit,
-    onCreateProject: (String, String, String) -> Unit,
+    onCreateProject: (String, String, String, Map<String, String>?) -> Unit,
     onInsertTemplate: (String) -> Unit,
     onReplaceWithTemplate: (String) -> Unit,
     onExportZip: () -> Unit = {},
@@ -264,28 +268,49 @@ fun WorkspaceDrawerScreen(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
                     .padding(bottom = 12.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
                 allProjects.forEach { proj ->
                     val isCurrent = proj.id == activeProject?.id
                     Card(
                         modifier = Modifier
-                            .weight(1f)
                             .clickable { onSelectProject(proj) },
                         colors = CardDefaults.cardColors(
                             containerColor = if (isCurrent) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface
                         ),
-                        shape = RoundedCornerShape(12.dp)
+                        shape = RoundedCornerShape(12.dp),
+                        border = if (isCurrent) androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary) else null
                     ) {
-                        Text(
-                            text = proj.title,
-                            fontSize = 12.sp,
-                            fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            modifier = Modifier.padding(12.dp),
-                            maxLines = 1
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)
+                        ) {
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                                modifier = Modifier.size(28.dp)
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Text(
+                                        text = proj.title.take(1).uppercase(),
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (isCurrent) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = proj.title,
+                                fontSize = 12.sp,
+                                fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                maxLines = 1
+                            )
+                        }
                     }
                 }
             }
@@ -548,60 +573,14 @@ fun WorkspaceDrawerScreen(
         )
     }
 
-    // New Project Dialog
+    // New Project Template Selection Dialog
     if (isNewProjectDialogOpen) {
-        AlertDialog(
-            onDismissRequest = { isNewProjectDialogOpen = false },
-            title = { Text("Create Project Workspace") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(
-                        value = newProjectTitle,
-                        onValueChange = { newProjectTitle = it },
-                        label = { Text("Project Name") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    OutlinedTextField(
-                        value = newProjectDesc,
-                        onValueChange = { newProjectDesc = it },
-                        label = { Text("Description") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    Text("Select Starter Template:", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        listOf("Calculator", "Game", "Weather", "Todo").forEach { tmpl ->
-                            Button(
-                                onClick = { selectedTemplate = tmpl },
-                                modifier = Modifier.weight(1f),
-                                shape = RoundedCornerShape(8.dp)
-                            ) {
-                                Text(tmpl, fontSize = 10.sp)
-                            }
-                        }
-                    }
-                }
-            },
-            confirmButton = {
-                Button(onClick = {
-                    if (newProjectTitle.isNotBlank()) {
-                        onCreateProject(newProjectTitle, newProjectDesc, selectedTemplate)
-                        newProjectTitle = ""
-                        newProjectDesc = ""
-                        isNewProjectDialogOpen = false
-                    }
-                }) {
-                    Text("Create Workspace")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { isNewProjectDialogOpen = false }) {
-                    Text("Cancel")
-                }
+        ProjectTemplateSelectionDialog(
+            isOpen = isNewProjectDialogOpen,
+            onDismiss = { isNewProjectDialogOpen = false },
+            onCreateProject = { title, desc, tmpl, files ->
+                onCreateProject(title, desc, tmpl, files)
+                isNewProjectDialogOpen = false
             }
         )
     }

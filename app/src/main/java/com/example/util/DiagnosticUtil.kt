@@ -28,7 +28,7 @@ data class DiagnosticState(
     val batteryTempCelsius: Float = 0f,
     val isThrottling: Boolean = false,
     val cpuThreads: Int = 4,
-    val activeModelName: String = "Gemma-2B-Q4_K_M.gguf"
+    val activeModelName: String = "No Model Loaded"
 )
 
 object DiagnosticUtil {
@@ -38,9 +38,9 @@ object DiagnosticUtil {
         speedTokensPerSec: Float = 0f,
         tokensGenerated: Int = 0,
         contextWindowTokens: Int = 4096,
-        modelSizeBytes: Long = 1_680_000_000L,
+        modelSizeBytes: Long = 0L,
         cpuThreads: Int = 4,
-        modelName: String = "Gemma-2B-Q4_K_M.gguf"
+        modelName: String = "No Model Loaded"
     ): DiagnosticState {
         // 1. RAM / Memory Metrics
         val activityManager = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager

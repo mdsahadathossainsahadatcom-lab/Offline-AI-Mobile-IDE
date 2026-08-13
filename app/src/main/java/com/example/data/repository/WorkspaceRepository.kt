@@ -62,7 +62,24 @@ class WorkspaceRepository(private val context: Context) {
     suspend fun saveChatMessage(sessionId: Long, sender: String, content: String): Long {
         val session = chatSessionDao.getSessionById(sessionId)
         if (session != null) {
-            chatSessionDao.updateSession(session.copy(lastModified = System.currentTimeMillis()))
+            var updatedName = session.sessionName
+            if (sender.equals("User", ignoreCase = true)) {
+                val messageCount = chatMessageDao.getMessageCountForSession(sessionId)
+                val isGenericName = session.sessionName == "New Chat Session" ||
+                        session.sessionName.startsWith("New Chat") ||
+                        session.sessionName.startsWith("Web Project Chat") ||
+                        session.sessionName.isBlank()
+
+                if (messageCount == 0 || isGenericName) {
+                    val cleanPrompt = content.removePrefix("[Autonomous Agent Goal] ").trim()
+                    val words = cleanPrompt.split("\\s+".toRegex()).filter { it.isNotBlank() }
+                    if (words.isNotEmpty()) {
+                        val first3or4 = words.take(4).joinToString(" ")
+                        updatedName = if (words.size > 4) "$first3or4..." else first3or4
+                    }
+                }
+            }
+            chatSessionDao.updateSession(session.copy(sessionName = updatedName, lastModified = System.currentTimeMillis()))
         }
         return chatMessageDao.insertMessage(
             com.example.data.db.ChatMessageEntity(
@@ -212,6 +229,10 @@ class WorkspaceRepository(private val context: Context) {
                 modelUsed = modelUsed
             )
         )
+    }
+
+    suspend fun saveModelProfile(model: ModelProfileEntity): Long {
+        return modelProfileDao.insertModel(model)
     }
 
     suspend fun addModelProfile(
@@ -597,26 +618,12 @@ console.log('App initialized on Local AI IDE.');
             }
         }
 
+        // Clean up any old mock/internal models or deleted model entries from Room DB
         val existingModels = allModels.first()
-        if (existingModels.isEmpty()) {
-            addModelProfile(
-                name = "Gemma-2B-it-Q4_K_M.gguf",
-                path = "internal://models/gemma-4-2b-it.gguf",
-                sizeBytes = 1_680_000_000L,
-                quantType = "Q4_K_M",
-                architecture = "gemma",
-                parameters = "2.5B",
-                contextWindow = 4096
-            )
-            addModelProfile(
-                name = "Llama-3-8B-Instruct.Q4_K_M.gguf",
-                path = "internal://models/llama-3-8b.gguf",
-                sizeBytes = 4_580_000_000L,
-                quantType = "Q4_K_M",
-                architecture = "llama",
-                parameters = "8B",
-                contextWindow = 8192
-            )
+        for (m in existingModels) {
+            if (m.path.startsWith("internal://") || !File(m.path).exists()) {
+                modelProfileDao.deleteModel(m)
+            }
         }
 
         prefs.edit().putBoolean("default_data_created", true).apply()

@@ -118,6 +118,9 @@ interface ChatMessageDao {
     @Query("SELECT * FROM chat_messages WHERE sessionId = :sessionId ORDER BY timestamp ASC")
     fun getMessagesForSession(sessionId: Long): Flow<List<ChatMessageEntity>>
 
+    @Query("SELECT COUNT(*) FROM chat_messages WHERE sessionId = :sessionId")
+    suspend fun getMessageCountForSession(sessionId: Long): Int
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertMessage(message: ChatMessageEntity): Long
 

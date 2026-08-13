@@ -10,8 +10,14 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -91,6 +97,7 @@ import androidx.compose.ui.unit.sp
 import com.example.data.db.ModelProfileEntity
 import com.example.engine.inference.GenerationProgress
 import com.example.ui.theme.IdeTheme
+import com.example.ui.theme.ThemeMode
 import com.example.util.MemoryCheckResult
 import com.example.util.MemoryCheckUtil
 import kotlinx.coroutines.delay
@@ -99,6 +106,8 @@ import kotlin.random.Random
 @Composable
 fun SettingsScreen(
     currentTheme: IdeTheme,
+    themeMode: ThemeMode = ThemeMode.SYSTEM,
+    useDynamicColor: Boolean = true,
     models: List<ModelProfileEntity>,
     selectedModel: ModelProfileEntity?,
     importProgress: GgufImportProgress? = null,
@@ -112,6 +121,8 @@ fun SettingsScreen(
     isTestingConnection: Boolean = false,
     connectionTestResult: String? = null,
     onThemeSelected: (IdeTheme) -> Unit,
+    onThemeModeSelected: (ThemeMode) -> Unit = {},
+    onToggleDynamicColor: (Boolean) -> Unit = {},
     onModelSelected: (Long) -> Unit,
     onImportGgufFile: (Uri) -> Unit,
     onDeleteModel: (ModelProfileEntity) -> Unit = {},
@@ -187,17 +198,24 @@ fun SettingsScreen(
         }
     }
 
+    val safeInsets = WindowInsets.systemBars.asPaddingValues()
+
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
-            .padding(16.dp),
+            .background(MaterialTheme.colorScheme.background),
+        contentPadding = PaddingValues(
+            start = 16.dp,
+            end = 16.dp,
+            top = 16.dp + safeInsets.calculateTopPadding(),
+            bottom = 16.dp + safeInsets.calculateBottomPadding()
+        ),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         // 1. Theme Customization Section
         item {
             Card(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().testTag("theme_customization_card"),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                 shape = RoundedCornerShape(16.dp)
             ) {
@@ -213,42 +231,143 @@ fun SettingsScreen(
                         )
                     }
 
-                    Spacer(modifier = Modifier.height(12.dp))
+                    Spacer(modifier = Modifier.height(14.dp))
 
-                    IdeTheme.entries.forEach { theme ->
-                        val isSelected = theme == currentTheme
-                        Card(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 4.dp)
-                                .clickable { onThemeSelected(theme) },
-                            colors = CardDefaults.cardColors(
-                                containerColor = if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f) else MaterialTheme.colorScheme.surfaceVariant
-                            ),
-                            shape = RoundedCornerShape(12.dp)
-                        ) {
-                            Row(
+                    Text(
+                        text = "THEME MODE (LIGHT / DARK / SYSTEM)",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    // Light / Dark / System Toggle Row
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        ThemeMode.entries.forEach { mode ->
+                            val isSelected = mode == themeMode
+                            Card(
                                 modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 12.dp, vertical = 10.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .clickable { onThemeModeSelected(mode) }
+                                    .testTag("theme_mode_${mode.name.lowercase()}"),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant
+                                ),
+                                shape = RoundedCornerShape(12.dp)
                             ) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text(text = theme.icon, fontSize = 20.sp)
-                                    Spacer(modifier = Modifier.width(12.dp))
+                                Column(
+                                    modifier = Modifier.padding(vertical = 10.dp, horizontal = 6.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    Text(text = "${mode.icon} ${mode.displayName}", fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    Spacer(modifier = Modifier.height(2.dp))
                                     Text(
-                                        text = theme.displayName,
-                                        fontSize = 14.sp,
-                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                        color = MaterialTheme.colorScheme.onSurface
+                                        text = mode.description,
+                                        fontSize = 9.sp,
+                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
                                     )
                                 }
+                            }
+                        }
+                    }
 
-                                RadioButton(
-                                    selected = isSelected,
-                                    onClick = { onThemeSelected(theme) }
-                                )
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // Dynamic Colors Switch Toggle
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                            .padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                            Text(
+                                text = "Dynamic Colors (Android 12+)",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = "Derives theme palette dynamically from system wallpaper colors",
+                                fontSize = 10.sp,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                            )
+                        }
+
+                        Switch(
+                            checked = useDynamicColor,
+                            onCheckedChange = onToggleDynamicColor,
+                            modifier = Modifier.testTag("dynamic_color_switch")
+                        )
+                    }
+
+                    if (!useDynamicColor) {
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        Text(
+                            text = "CUSTOM PALETTE (DYNAMIC COLOR OFF)",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        IdeTheme.entries.forEach { theme ->
+                            val isSelected = theme == currentTheme
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 4.dp)
+                                    .clickable { onThemeSelected(theme) },
+                                colors = CardDefaults.cardColors(
+                                    containerColor = if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f) else MaterialTheme.colorScheme.surfaceVariant
+                                ),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Row(
+                                        modifier = Modifier.weight(1f),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(text = theme.icon, fontSize = 20.sp)
+                                        Spacer(modifier = Modifier.width(12.dp))
+                                        Text(
+                                            text = theme.displayName,
+                                            fontSize = 14.sp,
+                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                            color = MaterialTheme.colorScheme.onSurface,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+
+                                    RadioButton(
+                                        selected = isSelected,
+                                        onClick = { onThemeSelected(theme) }
+                                    )
+                                }
                             }
                         }
                     }
@@ -527,58 +646,56 @@ fun SettingsScreen(
                 shape = RoundedCornerShape(16.dp)
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
-                    // Header Row with weight(1f) left column and compact right-side controls
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Row(
-                            modifier = Modifier.weight(1f),
-                            verticalAlignment = Alignment.CenterVertically
+                        Icon(imageVector = Icons.Default.SdStorage, contentDescription = "GGUF Storage", tint = MaterialTheme.colorScheme.primary)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "GGUF MODEL FILE SYSTEM",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                text = "Import, store & manage local GGUF weights on device",
+                                fontSize = 10.sp,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        OutlinedButton(
+                            onClick = { showModelManagerModal = true },
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("open_gguf_manager_button"),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
                         ) {
-                            Icon(imageVector = Icons.Default.SdStorage, contentDescription = "GGUF Storage", tint = MaterialTheme.colorScheme.primary)
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = "GGUF MODEL FILE SYSTEM",
-                                    fontSize = 14.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                                Text(
-                                    text = "Import, store & manage local GGUF weights on device",
-                                    fontSize = 10.sp,
-                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                                )
-                            }
+                            Icon(imageVector = Icons.Default.Tune, contentDescription = "Manage Models", modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Manage", fontSize = 11.sp, maxLines = 1)
                         }
 
-                        Spacer(modifier = Modifier.width(8.dp))
-
-                        Row(
-                            modifier = Modifier.wrapContentSize(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                        Button(
+                            onClick = { documentPickerLauncher.launch(arrayOf("*/*")) },
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.weight(1f),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
                         ) {
-                            OutlinedButton(
-                                onClick = { showModelManagerModal = true },
-                                shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier.testTag("open_gguf_manager_button")
-                            ) {
-                                Icon(imageVector = Icons.Default.Tune, contentDescription = "Manage Models", modifier = Modifier.size(16.dp))
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text("Manage", fontSize = 11.sp)
-                            }
-
-                            Button(
-                                onClick = { documentPickerLauncher.launch(arrayOf("*/*")) },
-                                shape = RoundedCornerShape(12.dp)
-                            ) {
-                                Icon(imageVector = Icons.Default.FileOpen, contentDescription = "Import GGUF", modifier = Modifier.size(16.dp))
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text("Import .gguf", fontSize = 11.sp)
-                            }
+                            Icon(imageVector = Icons.Default.FileOpen, contentDescription = "Import GGUF", modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Import .gguf", fontSize = 11.sp, maxLines = 1)
                         }
                     }
 
@@ -1072,8 +1189,8 @@ fun SettingsScreen(
                         context = androidx.compose.ui.platform.LocalContext.current,
                         speedTokensPerSec = generationProgress?.speedTokensPerSec ?: (if (isGenerating) 18.5f else 0.0f),
                         tokensGenerated = generationProgress?.tokensGenerated ?: 0,
-                        modelSizeBytes = selectedModel?.sizeBytes ?: 1_680_000_000L,
-                        modelName = selectedModel?.name ?: "Gemma-2B-Q4_K_M.gguf"
+                        modelSizeBytes = selectedModel?.sizeBytes ?: 0L,
+                        modelName = selectedModel?.name ?: "No Local Model"
                     )
                 },
                 generationProgress = generationProgress,
@@ -1103,10 +1220,13 @@ fun SettingsScreen(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+                        Row(
+                            modifier = Modifier.weight(1f),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
                             Icon(imageVector = Icons.Default.Tune, contentDescription = "HUD", tint = MaterialTheme.colorScheme.primary)
                             Spacer(modifier = Modifier.width(8.dp))
-                            Column {
+                            Column(modifier = Modifier.weight(1f)) {
                                 Text(
                                     text = "REAL-TIME PERFORMANCE HUD OVERLAY",
                                     fontSize = 13.sp,
@@ -1120,6 +1240,8 @@ fun SettingsScreen(
                                 )
                             }
                         }
+
+                        Spacer(modifier = Modifier.width(8.dp))
 
                         Switch(
                             checked = isHudEnabled,
@@ -1301,16 +1423,28 @@ fun SettingsScreen(
                     )
 
                     libs.forEach { (name, license) ->
-                        Row(
+                        Column(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(vertical = 4.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
+                                .padding(vertical = 4.dp)
                         ) {
-                            Text(text = name, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
-                            Text(text = license, fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f))
+                            Text(
+                                text = name,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                text = license,
+                                fontSize = 10.sp,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                                lineHeight = 14.sp
+                            )
                         }
+                        HorizontalDivider(
+                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f),
+                            modifier = Modifier.padding(vertical = 2.dp)
+                        )
                     }
                 }
             }
@@ -1591,7 +1725,7 @@ fun DevicePerformanceCard(
                         modifier = Modifier.size(84.dp)
                     ) {
                         CircularProgressIndicator(
-                            progress = ramUsedFraction,
+                            progress = { ramUsedFraction },
                             modifier = Modifier.fillMaxSize(),
                             color = if (ramUsedFraction > 0.85f) Color(0xFFEF4444) else MaterialTheme.colorScheme.primary,
                             strokeWidth = 7.dp,
@@ -1636,7 +1770,7 @@ fun DevicePerformanceCard(
                         modifier = Modifier.size(84.dp)
                     ) {
                         CircularProgressIndicator(
-                            progress = if (thermalCode == 0) 0.15f else thermalFraction,
+                            progress = { if (thermalCode == 0) 0.15f else thermalFraction },
                             modifier = Modifier.fillMaxSize(),
                             color = thermalColor,
                             strokeWidth = 7.dp,

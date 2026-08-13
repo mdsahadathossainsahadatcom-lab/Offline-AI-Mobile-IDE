@@ -33,7 +33,7 @@ class LocalInferenceEngine {
     @Volatile
     var isAborted: Boolean = false
 
-    var activeModelName: String = "Gemma-2B-it-Q4_K_M.gguf"
+    var activeModelName: String = "No Model Loaded"
     var activeQuant: String = "Q4_K_M"
     var contextWindow: Int = 4096
     var temperature: Float = 0.7f

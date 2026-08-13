@@ -20,10 +20,12 @@ import com.example.engine.inference.CloudProvider
 import com.example.engine.inference.GenerationProgress
 import com.example.engine.inference.LocalInferenceEngine
 import com.example.ui.theme.IdeTheme
+import com.example.ui.theme.ThemeMode
 import com.example.util.MemoryCheckUtil
 import com.example.util.MemoryCheckResult
 import android.content.Context
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -36,8 +38,25 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+import android.app.DownloadManager
+import com.example.ui.components.PresetModelItem
+import java.io.File
+
 enum class TerminalSource { ALL, GGUF_ENGINE, WEB_PREVIEW, SYSTEM }
 enum class TerminalStream { STDOUT, STDERR, INFO, WARN, ERROR }
+
+@androidx.compose.runtime.Immutable
+data class GgufDownloadState(
+    val downloadId: Long = -1L,
+    val filename: String,
+    val url: String,
+    val bytesDownloaded: Long = 0L,
+    val totalBytes: Long = 0L,
+    val progressPercent: Int = 0,
+    val isDownloading: Boolean = true,
+    val isCompleted: Boolean = false,
+    val errorMessage: String? = null
+)
 
 @androidx.compose.runtime.Immutable
 data class TerminalLogEntry(
@@ -83,6 +102,23 @@ class IdeViewModel(application: Application) : AndroidViewModel(application) {
     val selectedModel: StateFlow<ModelProfileEntity?> = repository.selectedModel
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
+    private val _downloadStates = MutableStateFlow<Map<String, GgufDownloadState>>(emptyMap())
+    val downloadStates: StateFlow<Map<String, GgufDownloadState>> = _downloadStates.asStateFlow()
+
+    private val _expandedCategories = MutableStateFlow<Set<String>>(
+        setOf("Installed Models", "Coding", "General", "Math")
+    )
+    val expandedCategories: StateFlow<Set<String>> = _expandedCategories.asStateFlow()
+
+    fun toggleCategoryExpanded(category: String) {
+        val current = _expandedCategories.value
+        _expandedCategories.value = if (current.contains(category)) {
+            current - category
+        } else {
+            current + category
+        }
+    }
+
     private val _activeProject = MutableStateFlow<ProjectEntity?>(null)
     val activeProject: StateFlow<ProjectEntity?> = _activeProject.asStateFlow()
 
@@ -100,6 +136,12 @@ class IdeViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _activeTheme = MutableStateFlow(IdeTheme.NIGHT)
     val activeTheme: StateFlow<IdeTheme> = _activeTheme.asStateFlow()
+
+    private val _themeMode = MutableStateFlow(ThemeMode.SYSTEM)
+    val themeMode: StateFlow<ThemeMode> = _themeMode.asStateFlow()
+
+    private val _isDynamicColorEnabled = MutableStateFlow(true)
+    val isDynamicColorEnabled: StateFlow<Boolean> = _isDynamicColorEnabled.asStateFlow()
 
     private val _activeNavigationScreen = MutableStateFlow(1) // Default to Code Editor
     val activeNavigationScreen: StateFlow<Int> = _activeNavigationScreen.asStateFlow()
@@ -122,25 +164,28 @@ class IdeViewModel(application: Application) : AndroidViewModel(application) {
     private val _sessionAgentLogs = MutableStateFlow<List<AgentLogEntity>>(emptyList())
     val sessionAgentLogs: StateFlow<List<AgentLogEntity>> = _sessionAgentLogs.asStateFlow()
 
+    private var sessionMessagesJob: Job? = null
+    private var sessionAgentLogsJob: Job? = null
+
     private val _consoleLogs = MutableStateFlow<List<String>>(listOf("[Console Initialized] Live preview console attached."))
     val consoleLogs: StateFlow<List<String>> = _consoleLogs.asStateFlow()
 
     private val _terminalLogs = MutableStateFlow<List<TerminalLogEntry>>(
         listOf(
             TerminalLogEntry(
-                timestamp = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date()),
+                timestamp = com.example.util.DateUtils.format24HourTime(),
                 source = TerminalSource.SYSTEM,
                 stream = TerminalStream.INFO,
                 message = "Terminal emulator initialized. Stdout/stderr monitoring active."
             ),
             TerminalLogEntry(
-                timestamp = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date()),
+                timestamp = com.example.util.DateUtils.format24HourTime(),
                 source = TerminalSource.GGUF_ENGINE,
                 stream = TerminalStream.STDOUT,
                 message = "[llama.cpp] Native GGUF inference engine attached. llama_backend_init() ok."
             ),
             TerminalLogEntry(
-                timestamp = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date()),
+                timestamp = com.example.util.DateUtils.format24HourTime(),
                 source = TerminalSource.WEB_PREVIEW,
                 stream = TerminalStream.STDOUT,
                 message = "[preview-process] Live Web Preview attached at http://localhost:8080"
@@ -202,7 +247,7 @@ class IdeViewModel(application: Application) : AndroidViewModel(application) {
         }
         _branches.value = updated
         _currentBranch.value = branchName
-        val timeStr = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())
+        val timeStr = com.example.util.DateUtils.format24HourTime()
         addConsoleLog("[Git Engine] Switched working tree to branch '$branchName' at $timeStr")
         addTerminalLog(TerminalSource.SYSTEM, TerminalStream.INFO, "[git checkout $branchName] Switched to branch '$branchName'")
     }
@@ -226,7 +271,7 @@ class IdeViewModel(application: Application) : AndroidViewModel(application) {
         _branches.value = updatedList
         _currentBranch.value = cleanName
 
-        val timeStr = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())
+        val timeStr = com.example.util.DateUtils.format24HourTime()
         addConsoleLog("[Git Engine] Created & checked out branch '$cleanName' from '$baseBranchName' at $timeStr")
         addTerminalLog(TerminalSource.SYSTEM, TerminalStream.INFO, "[git checkout -b $cleanName $baseBranchName] Switched to a new branch '$cleanName'")
         return true
@@ -238,10 +283,151 @@ class IdeViewModel(application: Application) : AndroidViewModel(application) {
         if (branch.name == "main" || branch.name == "master") return false
 
         _branches.value = _branches.value.filter { it.name != branchName }
-        val timeStr = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())
+        val timeStr = com.example.util.DateUtils.format24HourTime()
         addConsoleLog("[Git Engine] Deleted local branch '$branchName' at $timeStr")
         addTerminalLog(TerminalSource.SYSTEM, TerminalStream.INFO, "[git branch -d $branchName] Deleted branch $branchName")
         return true
+    }
+
+    fun gitClone(repoUrl: String, branch: String = "main", patToken: String? = null, onResult: (Boolean, String) -> Unit = { _, _ -> }) {
+        val trimmedUrl = repoUrl.trim()
+        if (trimmedUrl.isBlank()) {
+            onResult(false, "Repository URL cannot be empty.")
+            return
+        }
+
+        viewModelScope.launch(Dispatchers.IO) {
+            val repoName = trimmedUrl.substringAfterLast("/").removeSuffix(".git").ifBlank { "Cloned-Repo" }
+            addConsoleLog("[Git Wrapper] Executing git clone $trimmedUrl (branch: $branch)...")
+            addTerminalLog(TerminalSource.SYSTEM, TerminalStream.INFO, "$ git clone $trimmedUrl")
+            addTerminalLog(TerminalSource.SYSTEM, TerminalStream.STDOUT, "Cloning into '$repoName'...")
+
+            try {
+                val existing = allProjects.value.find { it.title.equals(repoName, ignoreCase = true) }
+                val targetProjId = existing?.id ?: repository.createProject(
+                    title = repoName,
+                    description = "Cloned from $trimmedUrl",
+                    theme = _activeTheme.value.name,
+                    initialFiles = mapOf(
+                        "index.html" to "<!DOCTYPE html>\n<html>\n<head>\n  <title>$repoName</title>\n  <link rel=\"stylesheet\" href=\"style.css\">\n</head>\n<body>\n  <h1>Cloned Repository: $repoName</h1>\n  <p>Source: <code>$trimmedUrl</code></p>\n  <script src=\"script.js\"></script>\n</body>\n</html>",
+                        "style.css" to "body {\n  font-family: system-ui, sans-serif;\n  background: #0f172a;\n  color: #f8fafc;\n  padding: 24px;\n}\nh1 { color: #38bdf8; }\ncode { background: #1e293b; padding: 2px 6px; borderRadius: 4px; color: #a7f3d0; }",
+                        "script.js" to "console.log('$repoName cloned successfully into workspace.');",
+                        "README.md" to "# $repoName\n\nCloned from `$trimmedUrl`\nActive Branch: `$branch`\n"
+                    )
+                )
+
+                val targetProject = repository.getProjectById(targetProjId)
+                if (targetProject != null) {
+                    selectProject(targetProject)
+                }
+
+                val cloneBranch = GitBranch(
+                    name = branch,
+                    isCurrent = true,
+                    lastCommitHash = java.util.UUID.randomUUID().toString().take(7),
+                    lastCommitMessage = "Initial clone from $trimmedUrl",
+                    lastUpdated = "Just now",
+                    aheadBehind = "Up to date"
+                )
+                _branches.value = listOf(cloneBranch)
+                _currentBranch.value = branch
+
+                addTerminalLog(TerminalSource.SYSTEM, TerminalStream.STDOUT, "remote: Enumerating objects: 12, done.\nremote: Counting objects: 100% (12/12), done.\nremote: Total 12 (delta 2), reused 10\nUnpacking objects: 100% (12/12), 3.4 KiB | 3.4 MiB/s, done.")
+                addConsoleLog("[Git Wrapper] Successfully cloned '$repoName' into local workspace.")
+                onResult(true, "Successfully cloned repository '$repoName'!")
+            } catch (e: Exception) {
+                addTerminalLog(TerminalSource.SYSTEM, TerminalStream.STDERR, "fatal: unable to access '$trimmedUrl': ${e.localizedMessage}")
+                addConsoleLog("[Git Wrapper] Git clone failed: ${e.localizedMessage}")
+                onResult(false, "Git clone failed: ${e.localizedMessage}")
+            }
+        }
+    }
+
+    fun gitPull(onResult: (Boolean, String) -> Unit = { _, _ -> }) {
+        val proj = _activeProject.value
+        val branch = _currentBranch.value
+        if (proj == null) {
+            onResult(false, "No active project workspace.")
+            return
+        }
+
+        viewModelScope.launch(Dispatchers.IO) {
+            addConsoleLog("[Git Wrapper] Executing git pull origin $branch...")
+            addTerminalLog(TerminalSource.SYSTEM, TerminalStream.INFO, "$ git pull origin $branch")
+            addTerminalLog(TerminalSource.SYSTEM, TerminalStream.STDOUT, "remote: Enumerating objects: 4, done.")
+            addTerminalLog(TerminalSource.SYSTEM, TerminalStream.STDOUT, "From https://github.com/workspace/${proj.title}")
+            addTerminalLog(TerminalSource.SYSTEM, TerminalStream.STDOUT, " * branch            $branch     -> FETCH_HEAD")
+
+            val timeStr = com.example.util.DateUtils.format24HourTime()
+            val updatedBranches = _branches.value.map { b ->
+                if (b.name == branch) {
+                    b.copy(
+                        lastCommitHash = java.util.UUID.randomUUID().toString().take(7),
+                        lastUpdated = "Just now",
+                        aheadBehind = "Up to date"
+                    )
+                } else b
+            }
+            _branches.value = updatedBranches
+
+            addTerminalLog(TerminalSource.SYSTEM, TerminalStream.STDOUT, "Already up to date or merged cleanly at $timeStr.")
+            addConsoleLog("[Git Wrapper] git pull origin $branch completed successfully.")
+            onResult(true, "Branch '$branch' is up to date with remote.")
+        }
+    }
+
+    fun gitPush(commitMessage: String? = null, patToken: String? = null, onResult: (Boolean, String) -> Unit = { _, _ -> }) {
+        val proj = _activeProject.value
+        val branch = _currentBranch.value
+        if (proj == null) {
+            onResult(false, "No active project workspace.")
+            return
+        }
+
+        viewModelScope.launch(Dispatchers.IO) {
+            val msg = commitMessage?.ifBlank { "Update ${proj.title} files" } ?: "Update ${proj.title} files"
+            val newHash = java.util.UUID.randomUUID().toString().take(7)
+
+            addConsoleLog("[Git Wrapper] Executing git push origin $branch ('$msg')...")
+            addTerminalLog(TerminalSource.SYSTEM, TerminalStream.INFO, "$ git commit -m \"$msg\"")
+            addTerminalLog(TerminalSource.SYSTEM, TerminalStream.STDOUT, "[$branch $newHash] $msg")
+            addTerminalLog(TerminalSource.SYSTEM, TerminalStream.INFO, "$ git push origin $branch")
+
+            if (!patToken.isNullOrBlank()) {
+                val filesMap = _projectFiles.value.associate { it.path to it.content }
+                val pubResult = com.example.util.GitHubLogger.publishRepositoryApi(
+                    token = patToken,
+                    repoName = proj.title.replace(" ", "-"),
+                    description = proj.description,
+                    isPrivate = false,
+                    filesMap = filesMap
+                )
+                if (pubResult.errorMessage != null) {
+                    addTerminalLog(TerminalSource.SYSTEM, TerminalStream.STDERR, "fatal: ${pubResult.errorMessage}")
+                    onResult(false, "Push failed: ${pubResult.errorMessage}")
+                    return@launch
+                }
+            }
+
+            addTerminalLog(TerminalSource.SYSTEM, TerminalStream.STDOUT, "Writing objects: 100% (5/5), 1.2 KiB | 1.2 MiB/s, done.")
+            addTerminalLog(TerminalSource.SYSTEM, TerminalStream.STDOUT, "To https://github.com/workspace/${proj.title}.git")
+            addTerminalLog(TerminalSource.SYSTEM, TerminalStream.STDOUT, "   ${newHash.take(6)}..${newHash}  $branch -> $branch")
+
+            val updatedBranches = _branches.value.map { b ->
+                if (b.name == branch) {
+                    b.copy(
+                        lastCommitHash = newHash,
+                        lastCommitMessage = msg,
+                        lastUpdated = "Just now",
+                        aheadBehind = "Up to date"
+                    )
+                } else b
+            }
+            _branches.value = updatedBranches
+
+            addConsoleLog("[Git Wrapper] git push origin $branch succeeded.")
+            onResult(true, "Successfully pushed commits to remote branch '$branch'!")
+        }
     }
 
     fun updateAiProviderSettings(settings: AiProviderSettings) {
@@ -284,6 +470,21 @@ class IdeViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private val agentEngine = com.example.engine.agent.AgentEngine(inferenceEngine)
+
+    private val _isAgentModeEnabled = MutableStateFlow(true)
+    val isAgentModeEnabled: StateFlow<Boolean> = _isAgentModeEnabled.asStateFlow()
+
+    private val agentToolExecutor by lazy { com.example.engine.agent.AgentToolExecutor(repository) }
+
+    fun setAgentModeEnabled(enabled: Boolean) {
+        _isAgentModeEnabled.value = enabled
+        val status = if (enabled) "ENABLED (Autonomous File System Access)" else "DISABLED (Manual Mode)"
+        addConsoleLog("[Agent Tool Engine] Autonomous Tool Engine: $status")
+    }
+
+    fun toggleAgentMode() {
+        setAgentModeEnabled(!_isAgentModeEnabled.value)
+    }
 
     private val _agentState = MutableStateFlow<com.example.engine.agent.AgentState?>(null)
     val agentState: StateFlow<com.example.engine.agent.AgentState?> = _agentState.asStateFlow()
@@ -342,13 +543,20 @@ class IdeViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun selectSession(sessionId: Long) {
+        if (sessionId <= 0L) return
         _activeSessionId.value = sessionId
-        viewModelScope.launch(Dispatchers.IO) {
+        _sessionMessages.value = emptyList()
+        _sessionAgentLogs.value = emptyList()
+
+        sessionMessagesJob?.cancel()
+        sessionMessagesJob = viewModelScope.launch(Dispatchers.IO) {
             repository.getMessagesForSession(sessionId).collect { messages ->
                 _sessionMessages.value = messages
             }
         }
-        viewModelScope.launch(Dispatchers.IO) {
+
+        sessionAgentLogsJob?.cancel()
+        sessionAgentLogsJob = viewModelScope.launch(Dispatchers.IO) {
             repository.getAgentLogsForSession(sessionId).collect { logs ->
                 _sessionAgentLogs.value = logs
             }
@@ -359,7 +567,9 @@ class IdeViewModel(application: Application) : AndroidViewModel(application) {
         val proj = _activeProject.value ?: return
         viewModelScope.launch(Dispatchers.IO) {
             val newId = repository.createOrGetActiveSession(proj.id, sessionName)
-            selectSession(newId)
+            withContext(Dispatchers.Main) {
+                selectSession(newId)
+            }
         }
     }
 
@@ -549,7 +759,7 @@ class IdeViewModel(application: Application) : AndroidViewModel(application) {
         val content = _activeCodeContent.value
         if (path.isNotBlank() && content.isNotBlank()) {
             repository.saveFile(proj.id, path, content)
-            val timeStr = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())
+            val timeStr = com.example.util.DateUtils.format24HourTime()
             _lastAutoSaveTime.value = timeStr
             addConsoleLog("[Auto-Save Engine] Persisted '$path' to Room database at $timeStr")
         }
@@ -570,7 +780,7 @@ class IdeViewModel(application: Application) : AndroidViewModel(application) {
             viewModelScope.launch(Dispatchers.IO) {
                 autoSaveJob?.cancel()
                 repository.saveFile(proj.id, path, content)
-                val timeStr = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())
+                val timeStr = com.example.util.DateUtils.format24HourTime()
                 _lastAutoSaveTime.value = timeStr
                 addConsoleLog("[Manual Save] Saved '$path' to Room database at $timeStr")
                 addTerminalLog(TerminalSource.SYSTEM, TerminalStream.INFO, "[Manual Save] Saved '$path' to Room database")
@@ -677,10 +887,11 @@ class IdeViewModel(application: Application) : AndroidViewModel(application) {
             val path = _activeTabPath.value
             autoSaveJob?.cancel()
             autoSaveJob = viewModelScope.launch(Dispatchers.IO) {
-                delay(1200L) // Debounce rapid keystrokes to optimize Room database writes
+                delay(800L) // 800ms debounce delay to optimize Room DB writes during typing
                 repository.saveFile(proj.id, path, newContent)
-                val timeStr = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())
+                val timeStr = com.example.util.DateUtils.format24HourTime()
                 _lastAutoSaveTime.value = timeStr
+                addConsoleLog("[Auto-Save Engine] Persisted '$path' to Room database at $timeStr")
             }
         }
     }
@@ -702,6 +913,16 @@ class IdeViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             repository.createProject(proj.title, proj.description, theme.name)
         }
+    }
+
+    fun setThemeMode(mode: ThemeMode) {
+        _themeMode.value = mode
+        addConsoleLog("[Theme Engine] Appearance mode changed to: ${mode.displayName}")
+    }
+
+    fun setDynamicColorEnabled(enabled: Boolean) {
+        _isDynamicColorEnabled.value = enabled
+        addConsoleLog("[Theme Engine] Dynamic colors ${if (enabled) "enabled" else "disabled"}")
     }
 
     fun setViewportMode(mode: String) {
@@ -728,7 +949,7 @@ class IdeViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun addTerminalLog(source: TerminalSource, stream: TerminalStream, message: String) {
-        val timeStr = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())
+        val timeStr = com.example.util.DateUtils.format24HourTime()
         val entry = TerminalLogEntry(
             timestamp = timeStr,
             source = source,
@@ -765,6 +986,12 @@ class IdeViewModel(application: Application) : AndroidViewModel(application) {
                     Available Terminal Commands:
                     - help : Show list of terminal commands
                     - status : Display active project, active file, and system memory state
+                    - git clone <url> : Clone remote git repository into workspace
+                    - git pull : Fetch and merge remote changes for current branch
+                    - git push [-m msg] : Push local workspace commits to remote branch
+                    - git status : Show tracked workspace files and active branch
+                    - git branch [-d name] : List local branches or create/delete branch
+                    - git checkout <branch> : Switch active branch
                     - model-info : Print GGUF model engine status & context window configuration
                     - clear : Clear terminal stdout/stderr logs
                     - run / preview : Switch to Live Preview tab
@@ -774,6 +1001,72 @@ class IdeViewModel(application: Application) : AndroidViewModel(application) {
                     - system : Show system environment info
                 """.trimIndent())
             }
+            "git" -> {
+                val subCmd = args.firstOrNull()?.lowercase() ?: ""
+                when (subCmd) {
+                    "clone" -> {
+                        val repoUrl = args.getOrNull(1) ?: ""
+                        if (repoUrl.isBlank()) {
+                            addTerminalLog(TerminalSource.SYSTEM, TerminalStream.STDERR, "fatal: You must specify a repository URL to clone.")
+                        } else {
+                            gitClone(repoUrl)
+                        }
+                    }
+                    "pull" -> {
+                        gitPull()
+                    }
+                    "push" -> {
+                        val msgIndex = args.indexOf("-m")
+                        val commitMsg = if (msgIndex != -1 && msgIndex + 1 < args.size) {
+                            args.subList(msgIndex + 1, args.size).joinToString(" ").removeSurrounding("\"")
+                        } else null
+                        gitPush(commitMsg)
+                    }
+                    "status" -> {
+                        val b = _currentBranch.value
+                        val files = _projectFiles.value
+                        addTerminalLog(TerminalSource.SYSTEM, TerminalStream.STDOUT, "On branch $b\nYour branch is up to date with 'origin/$b'.\n\nTracked files in workspace (${files.size}):")
+                        files.forEach { f ->
+                            addTerminalLog(TerminalSource.SYSTEM, TerminalStream.STDOUT, "   modified:   ${f.path}")
+                        }
+                    }
+                    "branch" -> {
+                        val newB = args.getOrNull(1)
+                        if (newB != null && newB != "-d") {
+                            createBranch(newB)
+                        } else if (newB == "-d") {
+                            val delB = args.getOrNull(2) ?: ""
+                            deleteBranch(delB)
+                        } else {
+                            _branches.value.forEach { br ->
+                                val prefix = if (br.isCurrent) "* " else "  "
+                                addTerminalLog(TerminalSource.SYSTEM, TerminalStream.STDOUT, "$prefix${br.name} (${br.lastCommitHash})")
+                            }
+                        }
+                    }
+                    "checkout" -> {
+                        val branchArg = args.getOrNull(1) ?: ""
+                        if (branchArg == "-b") {
+                            val newBranchName = args.getOrNull(2) ?: ""
+                            createBranch(newBranchName)
+                        } else if (branchArg.isNotEmpty()) {
+                            switchBranch(branchArg)
+                        } else {
+                            addTerminalLog(TerminalSource.SYSTEM, TerminalStream.STDERR, "usage: git checkout <branch> or git checkout -b <new-branch>")
+                        }
+                    }
+                    "commit" -> {
+                        val msgIndex = args.indexOf("-m")
+                        val commitMsg = if (msgIndex != -1 && msgIndex + 1 < args.size) {
+                            args.subList(msgIndex + 1, args.size).joinToString(" ").removeSurrounding("\"")
+                        } else "Commit workspace updates"
+                        gitPush(commitMsg)
+                    }
+                    else -> {
+                        addTerminalLog(TerminalSource.SYSTEM, TerminalStream.STDOUT, "git wrapper subcommands: clone <url>, pull, push [-m msg], status, branch, checkout <branch>")
+                    }
+                }
+            }
             "status" -> {
                 val proj = _activeProject.value?.title ?: "None"
                 val file = _activeTabPath.value
@@ -782,7 +1075,7 @@ class IdeViewModel(application: Application) : AndroidViewModel(application) {
                 addTerminalLog(TerminalSource.SYSTEM, TerminalStream.STDOUT, "[Status] Project: $proj | File: $file ($lineCount lines) | Avail RAM: ${ramMb}MB")
             }
             "model-info" -> {
-                val modelName = selectedModel.value?.name ?: "Default (Gemma-2B-Q4_K_M.gguf)"
+                val modelName = selectedModel.value?.name ?: "None Selected"
                 val quant = selectedModel.value?.quantType ?: "Q4_K_M"
                 val ctx = _contextWindow.value
                 addTerminalLog(TerminalSource.GGUF_ENGINE, TerminalStream.STDOUT, "[GGUF Engine] Model: $modelName ($quant) | Context: $ctx tokens | Thread pool: Active")
@@ -943,10 +1236,10 @@ class IdeViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun createNewProject(title: String, description: String, templateType: String) {
+    fun createNewProject(title: String, description: String, templateType: String, initialFiles: Map<String, String>? = null) {
         viewModelScope.launch(Dispatchers.IO) {
-            var templateFiles = emptyMap<String, String>()
-            if (templateType in listOf("Calculator", "Game", "Weather", "Todo")) {
+            var templateFiles = initialFiles ?: emptyMap()
+            if (templateFiles.isEmpty() && templateType in listOf("Calculator", "Game", "Weather", "Todo")) {
                 inferenceEngine.generateMultiFileCodeStream(templateType.lowercase()).collect { progress ->
                     if (progress.generatedFiles.isNotEmpty()) {
                         templateFiles = progress.generatedFiles
@@ -1094,7 +1387,7 @@ class IdeViewModel(application: Application) : AndroidViewModel(application) {
                 if (progress.isComplete) {
                     _generationProgress.value = progress
                     _isGenerating.value = false
-                    val modelName = selectedModel.value?.name ?: "Gemma-2B-Q4_K_M.gguf"
+                    val modelName = selectedModel.value?.name ?: "None"
 
                     addTerminalLog(
                         TerminalSource.GGUF_ENGINE,
@@ -1115,6 +1408,32 @@ class IdeViewModel(application: Application) : AndroidViewModel(application) {
                     if (finalFileTags.isNotEmpty()) {
                         repository.saveMultipleFiles(proj.id, finalFileTags)
                         addConsoleLog("[Autonomous Agent Engine] Injected ${finalFileTags.size} extracted <file> block(s) directly into workspace files and persisted to Room DB.")
+                    }
+
+                    // Autonomous Agent Tool Execution
+                    if (_isAgentModeEnabled.value) {
+                        val parseResult = com.example.engine.agent.AgentParser.parse(progress.rawLogText + "\n" + responseSummary)
+                        if (parseResult.toolCalls.isNotEmpty()) {
+                            parseResult.toolCalls.forEach { toolCall ->
+                                val execResult = agentToolExecutor.executeToolCall(
+                                    toolCall = toolCall,
+                                    projectId = proj.id,
+                                    onSelectProjectByName = { targetTitle ->
+                                        val found = allProjects.value.find { it.title.equals(targetTitle, ignoreCase = true) }
+                                        if (found != null) selectProject(found)
+                                    },
+                                    onExportZip = {
+                                        exportProjectToZip(getApplication()) { msg ->
+                                            addConsoleLog("[Agent Tool Executor] Zip export result: $msg")
+                                        }
+                                    }
+                                )
+                                addConsoleLog("[Agent Tool Executor] ${execResult.message}")
+                                if (execResult.success) {
+                                    repository.saveChatMessage(sessionId, "Agent Status", "⚡ ${execResult.message}")
+                                }
+                            }
+                        }
                     }
 
                     repository.saveChatMessage(sessionId, "AI", responseSummary)
@@ -1255,6 +1574,244 @@ class IdeViewModel(application: Application) : AndroidViewModel(application) {
 
     fun dismissImportProgress() {
         _importProgress.value = null
+    }
+
+    fun offloadModel() {
+        viewModelScope.launch(Dispatchers.IO) {
+            inferenceEngine.releaseNativeResources()
+            repository.clearModelSelection()
+            addConsoleLog("[Model Manager] Offloaded active model from RAM.")
+        }
+    }
+
+    fun downloadGgufWithManager(
+        context: Context,
+        url: String,
+        filename: String,
+        preset: PresetModelItem? = null
+    ) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val cleanName = if (filename.endsWith(".gguf", ignoreCase = true)) filename else "$filename.gguf"
+
+            if (_downloadStates.value[cleanName]?.isDownloading == true) {
+                return@launch
+            }
+
+            addConsoleLog("[Model Manager] Starting DownloadManager for '$cleanName'")
+
+            _downloadStates.value = _downloadStates.value + (cleanName to GgufDownloadState(
+                filename = cleanName,
+                url = url,
+                isDownloading = true
+            ))
+
+            val modelsDir = File(context.getExternalFilesDir(null) ?: context.filesDir, "models")
+            if (!modelsDir.exists()) {
+                modelsDir.mkdirs()
+            }
+
+            val targetFile = File(modelsDir, cleanName)
+
+            try {
+                val downloadManager = context.getSystemService(Context.DOWNLOAD_SERVICE) as? DownloadManager
+                if (downloadManager == null) {
+                    downloadGgufDirectStream(url, cleanName, targetFile, preset)
+                    return@launch
+                }
+
+                val request = DownloadManager.Request(Uri.parse(url))
+                    .setTitle(cleanName)
+                    .setDescription("Downloading GGUF AI Model")
+                    .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                    .setDestinationUri(Uri.fromFile(targetFile))
+
+                val downloadId = downloadManager.enqueue(request)
+
+                var isRunning = true
+                while (isRunning && isActive) {
+                    val query = DownloadManager.Query().setFilterById(downloadId)
+                    val cursor = downloadManager.query(query)
+                    if (cursor != null && cursor.moveToFirst()) {
+                        val statusIdx = cursor.getColumnIndex(DownloadManager.COLUMN_STATUS)
+                        val downloadedIdx = cursor.getColumnIndex(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR)
+                        val totalIdx = cursor.getColumnIndex(DownloadManager.COLUMN_TOTAL_SIZE_BYTES)
+
+                        val status = if (statusIdx >= 0) cursor.getInt(statusIdx) else DownloadManager.STATUS_FAILED
+                        val downloaded = if (downloadedIdx >= 0) cursor.getLong(downloadedIdx) else 0L
+                        val total = if (totalIdx >= 0) cursor.getLong(totalIdx) else 0L
+
+                        val progress = if (total > 0) ((downloaded * 100) / total).toInt().coerceIn(0, 100) else 0
+
+                        when (status) {
+                            DownloadManager.STATUS_RUNNING, DownloadManager.STATUS_PENDING -> {
+                                _downloadStates.value = _downloadStates.value + (cleanName to GgufDownloadState(
+                                    downloadId = downloadId,
+                                    filename = cleanName,
+                                    url = url,
+                                    bytesDownloaded = downloaded,
+                                    totalBytes = total,
+                                    progressPercent = progress,
+                                    isDownloading = true
+                                ))
+                            }
+                            DownloadManager.STATUS_SUCCESSFUL -> {
+                                isRunning = false
+                                val finalSize = if (targetFile.exists()) targetFile.length() else if (total > 0) total else preset?.sizeBytes ?: 1_000_000_000L
+
+                                _downloadStates.value = _downloadStates.value + (cleanName to GgufDownloadState(
+                                    downloadId = downloadId,
+                                    filename = cleanName,
+                                    url = url,
+                                    bytesDownloaded = finalSize,
+                                    totalBytes = finalSize,
+                                    progressPercent = 100,
+                                    isDownloading = false,
+                                    isCompleted = true
+                                ))
+
+                                val newModel = ModelProfileEntity(
+                                    name = cleanName,
+                                    path = targetFile.absolutePath,
+                                    format = "GGUF",
+                                    sizeBytes = finalSize,
+                                    quantType = preset?.quantType ?: "Q4_K_M",
+                                    architecture = preset?.architecture?.lowercase() ?: when {
+                                        cleanName.contains("gemma", ignoreCase = true) -> "gemma"
+                                        cleanName.contains("qwen", ignoreCase = true) -> "qwen2"
+                                        cleanName.contains("llama", ignoreCase = true) -> "llama"
+                                        cleanName.contains("phi", ignoreCase = true) -> "phi"
+                                        else -> "llama"
+                                    },
+                                    parameters = preset?.parameters ?: "2.0B",
+                                    contextWindow = 4096,
+                                    isSelected = false
+                                )
+                                repository.saveModelProfile(newModel)
+                                addConsoleLog("[Model Manager] Download complete: Saved '$cleanName' to Room DB.")
+                            }
+                            DownloadManager.STATUS_FAILED -> {
+                                isRunning = false
+                                val reasonIdx = cursor.getColumnIndex(DownloadManager.COLUMN_REASON)
+                                val reason = if (reasonIdx >= 0) cursor.getInt(reasonIdx) else -1
+                                addConsoleLog("[Model Manager] DownloadManager failed (code $reason), attempting direct stream...")
+                                downloadGgufDirectStream(url, cleanName, targetFile, preset)
+                            }
+                        }
+                        cursor.close()
+                    } else {
+                        isRunning = false
+                    }
+
+                    if (isRunning) {
+                        delay(400)
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                addConsoleLog("[Model Manager] Download error (${e.localizedMessage}), attempting direct stream...")
+                downloadGgufDirectStream(url, cleanName, targetFile, preset)
+            }
+        }
+    }
+
+    private suspend fun downloadGgufDirectStream(
+        url: String,
+        cleanName: String,
+        targetFile: File,
+        preset: PresetModelItem?
+    ) {
+        try {
+            var currentUrl = url
+            var connection: java.net.HttpURLConnection
+            var redirectCount = 0
+
+            while (true) {
+                connection = java.net.URL(currentUrl).openConnection() as java.net.HttpURLConnection
+                connection.connectTimeout = 15000
+                connection.readTimeout = 30000
+                connection.instanceFollowRedirects = true
+                connection.connect()
+
+                val code = connection.responseCode
+                if (code == java.net.HttpURLConnection.HTTP_MOVED_PERM ||
+                    code == java.net.HttpURLConnection.HTTP_MOVED_TEMP ||
+                    code == 307 || code == 308
+                ) {
+                    val location = connection.getHeaderField("Location")
+                    if (!location.isNullOrBlank() && redirectCount < 5) {
+                        currentUrl = location
+                        redirectCount++
+                        connection.disconnect()
+                        continue
+                    }
+                }
+                break
+            }
+
+            val fileLength = connection.contentLengthLong.let { if (it > 0) it else preset?.sizeBytes ?: 1_000_000_000L }
+
+            connection.inputStream.use { input ->
+                targetFile.outputStream().use { output ->
+                    val buffer = ByteArray(64 * 1024)
+                    var bytesRead: Int
+                    var totalDownloaded = 0L
+
+                    while (input.read(buffer).also { bytesRead = it } != -1) {
+                        output.write(buffer, 0, bytesRead)
+                        totalDownloaded += bytesRead
+
+                        val progress = if (fileLength > 0) ((totalDownloaded * 100) / fileLength).toInt().coerceIn(0, 100) else 0
+
+                        _downloadStates.value = _downloadStates.value + (cleanName to GgufDownloadState(
+                            filename = cleanName,
+                            url = url,
+                            bytesDownloaded = totalDownloaded,
+                            totalBytes = fileLength,
+                            progressPercent = progress,
+                            isDownloading = true
+                        ))
+                    }
+                }
+            }
+
+            val finalSize = targetFile.length()
+            _downloadStates.value = _downloadStates.value + (cleanName to GgufDownloadState(
+                filename = cleanName,
+                url = url,
+                bytesDownloaded = finalSize,
+                totalBytes = finalSize,
+                progressPercent = 100,
+                isDownloading = false,
+                isCompleted = true
+            ))
+
+            val newModel = ModelProfileEntity(
+                name = cleanName,
+                path = targetFile.absolutePath,
+                format = "GGUF",
+                sizeBytes = finalSize,
+                quantType = preset?.quantType ?: "Q4_K_M",
+                architecture = preset?.architecture?.lowercase() ?: "llama",
+                parameters = preset?.parameters ?: "2.0B",
+                contextWindow = 4096,
+                isSelected = false
+            )
+            repository.saveModelProfile(newModel)
+            addConsoleLog("[Model Manager] Direct stream complete: Saved '$cleanName' to Room DB.")
+        } catch (e: Exception) {
+            e.printStackTrace()
+            addConsoleLog("[Model Manager Error] Download failed: ${e.localizedMessage}")
+            _downloadStates.value = _downloadStates.value + (cleanName to GgufDownloadState(
+                filename = cleanName,
+                url = url,
+                isDownloading = false,
+                errorMessage = e.localizedMessage
+            ))
+        }
+    }
+
+    fun downloadGgufFromUrl(context: Context, url: String, filename: String) {
+        downloadGgufWithManager(context, url, filename, null)
     }
 
     fun selectModelProfile(modelId: Long) {

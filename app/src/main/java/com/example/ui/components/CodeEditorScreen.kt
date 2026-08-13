@@ -140,7 +140,10 @@ fun CodeEditorScreen(
     currentBranchName: String = "main",
     onCreateBranch: (String, String) -> Boolean = { _, _ -> true },
     onSwitchBranch: (String) -> Unit = {},
-    onDeleteBranch: (String) -> Boolean = { true }
+    onDeleteBranch: (String) -> Boolean = { true },
+    onGitClone: (String, String) -> Unit = { _, _ -> },
+    onGitPull: () -> Unit = {},
+    onGitPush: (String) -> Unit = {}
 ) {
     // File Explorer Side Panel State
     var isExplorerOpen by remember { mutableStateOf(false) }
@@ -463,7 +466,10 @@ fun CodeEditorScreen(
                         branches = branches,
                         onCreateBranch = onCreateBranch,
                         onSwitchBranch = onSwitchBranch,
-                        onDeleteBranch = onDeleteBranch
+                        onDeleteBranch = onDeleteBranch,
+                        onGitClone = onGitClone,
+                        onGitPull = onGitPull,
+                        onGitPush = onGitPush
                     )
                 }
 
@@ -1019,36 +1025,34 @@ fun CodeEditorScreen(
                 .weight(1f)
                 .padding(horizontal = 4.dp, vertical = 2.dp)
         ) {
-            // Collapsible File Explorer Side Panel
+            // Collapsible File Explorer Side Panel with Drag-to-Resize
             AnimatedVisibility(
                 visible = isExplorerOpen && allProjectFiles.isNotEmpty(),
                 enter = expandHorizontally() + fadeIn(),
                 exit = shrinkHorizontally() + fadeOut()
             ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxHeight()
-                        .width(220.dp)
-                        .background(MaterialTheme.colorScheme.surfaceVariant)
-                        .border(1.dp, MaterialTheme.colorScheme.outlineVariant)
-                        .padding(end = 4.dp)
-                ) {
-                    FileExplorerComponent(
-                        files = allProjectFiles,
-                        activeTabPath = activeTabPath,
-                        onSelectFile = { path ->
-                            onTabSelected(path)
-                        },
-                        onCreateFile = onCreateFile,
-                        onDeleteFile = onDeleteFile,
-                        isCompact = true,
-                        branches = branches,
-                        currentBranchName = currentBranchName,
-                        onCreateBranch = onCreateBranch,
-                        onSwitchBranch = onSwitchBranch,
-                        onDeleteBranch = onDeleteBranch
-                    )
-                }
+                SideNavFileBrowser(
+                    files = allProjectFiles,
+                    activeTabPath = activeTabPath,
+                    onSelectFile = { path ->
+                        onTabSelected(path)
+                    },
+                    onCreateFile = onCreateFile,
+                    onDeleteFile = onDeleteFile,
+                    isCompact = true,
+                    branches = branches,
+                    currentBranchName = currentBranchName,
+                    onCreateBranch = onCreateBranch,
+                    onSwitchBranch = onSwitchBranch,
+                    onDeleteBranch = onDeleteBranch,
+                    onGitClone = onGitClone,
+                    onGitPull = onGitPull,
+                    onGitPush = onGitPush,
+                    initialWidth = 220.dp,
+                    minWidth = 140.dp,
+                    maxWidth = 480.dp,
+                    enableResize = true
+                )
             }
 
             // Line Numbers & Folding Gutter Column
@@ -1799,20 +1803,28 @@ fun highlightSyntax(
 
     val spans = mutableListOf<StyleSpan>()
 
-    val isHtml = path.endsWith(".html") || path.endsWith(".htm")
-    val isCss = path.endsWith(".css")
-    val isJs = path.endsWith(".js") || path.endsWith(".ts")
+    val isHtml = path.endsWith(".html") || path.endsWith(".htm") || path.endsWith(".xml") || path.endsWith(".svg")
+    val isCss = path.endsWith(".css") || path.endsWith(".scss") || path.endsWith(".less")
+    val isJs = path.endsWith(".js") || path.endsWith(".ts") || path.endsWith(".jsx") || path.endsWith(".tsx")
     val isPython = path.endsWith(".py")
     val isJson = path.endsWith(".json")
     val isMarkdown = path.endsWith(".md")
+    val isKotlin = path.endsWith(".kt") || path.endsWith(".kts") || path.endsWith(".java") || path.endsWith(".gradle")
+    val isCpp = path.endsWith(".c") || path.endsWith(".cpp") || path.endsWith(".h") || path.endsWith(".hpp") || path.endsWith(".cs") || path.endsWith(".rs") || path.endsWith(".go")
+    val isYaml = path.endsWith(".yaml") || path.endsWith(".yml") || path.endsWith(".toml") || path.endsWith(".properties")
+    val isSh = path.endsWith(".sh") || path.endsWith(".bash") || path.endsWith(".zsh")
 
     when {
+        isKotlin -> highlightKotlin(code, spans)
         isHtml -> highlightHtml(code, spans)
         isCss -> highlightCss(code, spans)
         isJs -> highlightJs(code, spans)
         isPython -> highlightPython(code, spans)
         isJson -> highlightJson(code, spans)
         isMarkdown -> highlightMarkdown(code, spans)
+        isCpp -> highlightCpp(code, spans)
+        isYaml -> highlightYaml(code, spans)
+        isSh -> highlightSh(code, spans)
     }
 
     // Add search highlights on top of syntax highlighting
@@ -1995,6 +2007,122 @@ private fun highlightMarkdown(code: String, spans: MutableList<StyleSpan>) {
 
     Regex("\\[.*?\\]\\(.*?\\)").findAll(code).forEach { m ->
         spans.add(StyleSpan(m.range.first, m.range.last + 1, SpanStyle(color = SyntaxSelector)))
+    }
+}
+
+private fun highlightKotlin(code: String, spans: MutableList<StyleSpan>) {
+    Regex("//.*$|/\\*[\\s\\S]*?\\*/", RegexOption.MULTILINE).findAll(code).forEach { m ->
+        spans.add(StyleSpan(m.range.first, m.range.last + 1, SpanStyle(color = SyntaxComment, fontStyle = FontStyle.Italic)))
+    }
+
+    Regex("\"\"\"[\\s\\S]*?\"\"\"|\"[^\"\\n]*\"|'[^'\\n]*'").findAll(code).forEach { m ->
+        spans.add(StyleSpan(m.range.first, m.range.last + 1, SpanStyle(color = SyntaxString)))
+    }
+
+    Regex("@[a-zA-Z_][a-zA-Z0-9_]*").findAll(code).forEach { m ->
+        spans.add(StyleSpan(m.range.first, m.range.last + 1, SpanStyle(color = SyntaxTag, fontWeight = FontWeight.Bold)))
+    }
+
+    val ktKeywords = setOf(
+        "package", "import", "class", "interface", "object", "fun", "val", "var",
+        "sealed", "data", "enum", "public", "private", "protected", "internal",
+        "override", "open", "abstract", "companion", "by", "lazy", "get", "set",
+        "if", "else", "when", "for", "while", "do", "return", "try", "catch",
+        "finally", "throw", "is", "as", "in", "out", "typealias", "const",
+        "lateinit", "expect", "actual", "suspend", "inline", "crossinline", "noinline",
+        "operator", "infix", "reified"
+    )
+    Regex("\\b[a-zA-Z_][a-zA-Z0-9_]*\\b").findAll(code).forEach { m ->
+        val word = m.value
+        if (ktKeywords.contains(word)) {
+            spans.add(StyleSpan(m.range.first, m.range.last + 1, SpanStyle(color = SyntaxKeyword, fontWeight = FontWeight.Bold)))
+        } else if (setOf("true", "false", "null", "this", "super").contains(word)) {
+            spans.add(StyleSpan(m.range.first, m.range.last + 1, SpanStyle(color = SyntaxNumber, fontWeight = FontWeight.Bold)))
+        }
+    }
+
+    Regex("\\b([a-zA-Z_][a-zA-Z0-9_]*)\\s*(?=\\()").findAll(code).forEach { m ->
+        m.groups[1]?.let { g ->
+            spans.add(StyleSpan(g.range.first, g.range.last + 1, SpanStyle(color = SyntaxSelector)))
+        }
+    }
+
+    Regex("\\b0x[0-9a-fA-F]+\\b|\\b\\d+(\\.\\d+)?([fFLL])?\\b").findAll(code).forEach { m ->
+        spans.add(StyleSpan(m.range.first, m.range.last + 1, SpanStyle(color = SyntaxNumber)))
+    }
+}
+
+private fun highlightCpp(code: String, spans: MutableList<StyleSpan>) {
+    Regex("//.*$|/\\*[\\s\\S]*?\\*/", RegexOption.MULTILINE).findAll(code).forEach { m ->
+        spans.add(StyleSpan(m.range.first, m.range.last + 1, SpanStyle(color = SyntaxComment, fontStyle = FontStyle.Italic)))
+    }
+
+    Regex("\"[^\"]*\"|'[^']*'").findAll(code).forEach { m ->
+        spans.add(StyleSpan(m.range.first, m.range.last + 1, SpanStyle(color = SyntaxString)))
+    }
+
+    Regex("^\\s*#[a-zA-Z_]+", RegexOption.MULTILINE).findAll(code).forEach { m ->
+        spans.add(StyleSpan(m.range.first, m.range.last + 1, SpanStyle(color = SyntaxTag, fontWeight = FontWeight.Bold)))
+    }
+
+    val cppKeywords = setOf(
+        "fn", "struct", "impl", "let", "mut", "pub", "use", "match", "void", "int",
+        "char", "float", "double", "bool", "class", "namespace", "using", "template",
+        "auto", "const", "static", "sizeof", "if", "else", "while", "for", "return",
+        "public", "private", "protected", "virtual", "override", "new", "delete"
+    )
+    Regex("\\b[a-zA-Z_][a-zA-Z0-9_]*\\b").findAll(code).forEach { m ->
+        val word = m.value
+        if (cppKeywords.contains(word)) {
+            spans.add(StyleSpan(m.range.first, m.range.last + 1, SpanStyle(color = SyntaxKeyword, fontWeight = FontWeight.Bold)))
+        } else if (setOf("true", "false", "nullptr", "NULL").contains(word)) {
+            spans.add(StyleSpan(m.range.first, m.range.last + 1, SpanStyle(color = SyntaxNumber, fontWeight = FontWeight.Bold)))
+        }
+    }
+
+    Regex("\\b\\d+(\\.\\d+)?\\b").findAll(code).forEach { m ->
+        spans.add(StyleSpan(m.range.first, m.range.last + 1, SpanStyle(color = SyntaxNumber)))
+    }
+}
+
+private fun highlightYaml(code: String, spans: MutableList<StyleSpan>) {
+    Regex("#.*$", RegexOption.MULTILINE).findAll(code).forEach { m ->
+        spans.add(StyleSpan(m.range.first, m.range.last + 1, SpanStyle(color = SyntaxComment, fontStyle = FontStyle.Italic)))
+    }
+
+    Regex("^\\s*([a-zA-Z0-9_-]+)\\s*:", RegexOption.MULTILINE).findAll(code).forEach { m ->
+        m.groups[1]?.let { g ->
+            spans.add(StyleSpan(g.range.first, g.range.last + 1, SpanStyle(color = SyntaxAttribute, fontWeight = FontWeight.Bold)))
+        }
+    }
+
+    Regex("\"[^\"]*\"|'[^']*'").findAll(code).forEach { m ->
+        spans.add(StyleSpan(m.range.first, m.range.last + 1, SpanStyle(color = SyntaxString)))
+    }
+
+    Regex("\\b(true|false|null|yes|no)\\b|\\b\\d+(\\.\\d+)?\\b").findAll(code).forEach { m ->
+        spans.add(StyleSpan(m.range.first, m.range.last + 1, SpanStyle(color = SyntaxNumber)))
+    }
+}
+
+private fun highlightSh(code: String, spans: MutableList<StyleSpan>) {
+    Regex("#.*$", RegexOption.MULTILINE).findAll(code).forEach { m ->
+        spans.add(StyleSpan(m.range.first, m.range.last + 1, SpanStyle(color = SyntaxComment, fontStyle = FontStyle.Italic)))
+    }
+
+    Regex("\"[^\"]*\"|'[^']*'").findAll(code).forEach { m ->
+        spans.add(StyleSpan(m.range.first, m.range.last + 1, SpanStyle(color = SyntaxString)))
+    }
+
+    Regex("\\$\\{?[a-zA-Z0-9_]+\\}?").findAll(code).forEach { m ->
+        spans.add(StyleSpan(m.range.first, m.range.last + 1, SpanStyle(color = SyntaxTag, fontWeight = FontWeight.Bold)))
+    }
+
+    val shKeywords = setOf("if", "then", "else", "elif", "fi", "for", "in", "do", "done", "while", "case", "esac", "function", "echo", "export", "exit", "local", "return")
+    Regex("\\b[a-zA-Z_][a-zA-Z0-9_]*\\b").findAll(code).forEach { m ->
+        if (shKeywords.contains(m.value)) {
+            spans.add(StyleSpan(m.range.first, m.range.last + 1, SpanStyle(color = SyntaxKeyword, fontWeight = FontWeight.Bold)))
+        }
     }
 }
 

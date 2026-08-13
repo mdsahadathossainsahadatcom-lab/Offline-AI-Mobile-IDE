@@ -1,3 +1,4 @@
+@file:Suppress("DEPRECATION")
 package com.example.ui.components
 
 import android.content.ClipData
@@ -94,6 +95,9 @@ fun GitHubDiagnosticPanel(
     onCreateBranch: (String, String) -> Boolean = { _, _ -> true },
     onSwitchBranch: (String) -> Unit = {},
     onDeleteBranch: (String) -> Boolean = { true },
+    onGitClone: (String, String) -> Unit = { _, _ -> },
+    onGitPull: () -> Unit = {},
+    onGitPush: (String) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var selectedTab by remember { mutableStateOf(0) } // 0 = API Logs, 1 = Publisher & CI, 2 = Branches, 3 = Token & Scopes
@@ -624,7 +628,10 @@ fun GitHubDiagnosticPanel(
                             currentBranchName = currentBranchName,
                             onCreateBranch = onCreateBranch,
                             onSwitchBranch = onSwitchBranch,
-                            onDeleteBranch = onDeleteBranch
+                            onDeleteBranch = onDeleteBranch,
+                            onGitClone = onGitClone,
+                            onGitPull = onGitPull,
+                            onGitPush = onGitPush
                         )
                     }
                 }

@@ -1,5 +1,6 @@
 package com.example.ui.main
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -21,9 +22,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.input.pointer.pointerInput
@@ -45,6 +50,7 @@ import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Smartphone
 import com.example.ui.components.DiagnosticPanel
@@ -75,6 +81,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
+import androidx.compose.material3.Surface
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.foundation.layout.height
@@ -106,6 +113,7 @@ import com.example.ui.components.AiAssistantScreen
 import com.example.ui.components.CodeEditorScreen
 import com.example.ui.components.GgufModelDropdownSelector
 import com.example.ui.components.LivePreviewScreen
+import com.example.ui.components.ModelManagerScreen
 import com.example.ui.components.SettingsScreen
 import com.example.ui.components.WorkspaceDrawerScreen
 import com.example.ui.theme.LocalAiIdeTheme
@@ -124,6 +132,8 @@ fun MainScreen(viewModel: IdeViewModel) {
     val activeTabPath by viewModel.activeTabPath.collectAsState()
     val activeCodeContent by viewModel.activeCodeContent.collectAsState()
     val activeTheme by viewModel.activeTheme.collectAsState()
+    val themeMode by viewModel.themeMode.collectAsState()
+    val isDynamicColorEnabled by viewModel.isDynamicColorEnabled.collectAsState()
     val navScreen by viewModel.activeNavigationScreen.collectAsState()
 
     val generationProgress by viewModel.generationProgress.collectAsState()
@@ -144,6 +154,8 @@ fun MainScreen(viewModel: IdeViewModel) {
     val contextWindow by viewModel.contextWindow.collectAsState()
     val isHudEnabled by viewModel.isPerformanceHudEnabled.collectAsState()
     val importProgress by viewModel.importProgress.collectAsState()
+    val downloadStates by viewModel.downloadStates.collectAsState()
+    val expandedCategories by viewModel.expandedCategories.collectAsState()
     val agentState by viewModel.agentState.collectAsState()
     val aiProviderSettings by viewModel.aiProviderSettings.collectAsState()
     val isTestingCloudConnection by viewModel.isTestingCloudConnection.collectAsState()
@@ -158,6 +170,7 @@ fun MainScreen(viewModel: IdeViewModel) {
     var renameInputText by remember { mutableStateOf("") }
     var sessionToDelete by remember { mutableStateOf<ChatSessionEntity?>(null) }
     var showGitHubDiagnosticDialog by remember { mutableStateOf(false) }
+    var showModelManagerDialog by remember { mutableStateOf(false) }
 
     val context = androidx.compose.ui.platform.LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -219,20 +232,67 @@ fun MainScreen(viewModel: IdeViewModel) {
         }
     }
 
-    LocalAiIdeTheme(ideTheme = activeTheme) {
+    LocalAiIdeTheme(
+        ideTheme = activeTheme,
+        themeMode = themeMode,
+        useDynamicColor = isDynamicColorEnabled
+    ) {
         ModalNavigationDrawer(
             drawerState = drawerState,
             drawerContent = {
                 ModalDrawerSheet(
-                    modifier = Modifier.width(280.dp),
+                    modifier = Modifier.width(280.dp).fillMaxHeight(),
                     drawerContainerColor = MaterialTheme.colorScheme.surface
                 ) {
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
+                            .systemBarsPadding()
                             .padding(16.dp)
                     ) {
-                        // Drawer Header
+                        // Models Item (At top of drawer)
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    showModelManagerDialog = true
+                                    drawerScope.launch { drawerState.close() }
+                                },
+                            shape = RoundedCornerShape(12.dp),
+                            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(16.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Psychology,
+                                    contentDescription = "Models",
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Column {
+                                    Text(
+                                        text = "Model Hub",
+                                        fontSize = 16.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                    Text(
+                                        text = "Manage local GGUF models",
+                                        fontSize = 12.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(24.dp))
+
+                        // Drawer Header (Chat Sessions)
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
@@ -292,8 +352,7 @@ fun MainScreen(viewModel: IdeViewModel) {
                                 items(chatSessions, key = { it.sessionId }) { session ->
                                     val isSelected = session.sessionId == activeSessionId
                                     val dateStr = remember(session.lastModified) {
-                                        java.text.SimpleDateFormat("MMM dd, HH:mm", java.util.Locale.getDefault())
-                                            .format(java.util.Date(session.lastModified))
+                                        com.example.util.DateUtils.formatSessionTimestamp(session.lastModified)
                                     }
 
                                     val dismissState = rememberSwipeToDismissBoxState(
@@ -417,104 +476,120 @@ fun MainScreen(viewModel: IdeViewModel) {
                 }
             }
         ) {
-            Scaffold(
-                modifier = Modifier.fillMaxSize(),
-                contentWindowInsets = WindowInsets(0, 0, 0, 0),
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color(0xFF0F172A))
+            ) {
+                Scaffold(
+                    modifier = Modifier.fillMaxSize(),
+                    containerColor = Color.Transparent,
+                    contentWindowInsets = WindowInsets(0, 0, 0, 0),
                 topBar = {
-                    Card(
+                    Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 8.dp, vertical = 4.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                        shape = RoundedCornerShape(12.dp)
+                            .statusBarsPadding()
                     ) {
-                        Row(
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Card(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 12.dp, vertical = 8.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
+                                .padding(horizontal = 8.dp, vertical = 2.dp),
+                            colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B).copy(alpha = 0.7f)),
+                            border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.15f)),
+                            shape = RoundedCornerShape(14.dp)
                         ) {
                             Row(
-                                modifier = Modifier.weight(1f, fill = false),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                IconButton(
-                                    onClick = { drawerScope.launch { drawerState.open() } },
-                                    modifier = Modifier.testTag("open_sessions_drawer_button")
+                                Row(
+                                    modifier = Modifier.weight(1f, fill = false),
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Menu,
-                                        contentDescription = "Chat Sessions Drawer",
-                                        tint = MaterialTheme.colorScheme.primary
-                                    )
-                                }
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text(
-                                    text = "💻 " + (activeProject?.title ?: "Local AI IDE"),
-                                    fontSize = 15.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.End
-                            ) {
-                                IconButton(
-                                    onClick = {
-                                        val isCurrentlyLight = activeTheme == com.example.ui.theme.IdeTheme.WHITE
-                                        val nextTheme = if (isCurrentlyLight) com.example.ui.theme.IdeTheme.NIGHT else com.example.ui.theme.IdeTheme.WHITE
-                                        viewModel.setTheme(nextTheme)
-                                    },
-                                    modifier = Modifier.testTag("top_bar_theme_toggle_button")
-                                ) {
-                                    Icon(
-                                        imageVector = if (activeTheme == com.example.ui.theme.IdeTheme.WHITE) Icons.Default.DarkMode else Icons.Default.LightMode,
-                                        contentDescription = if (activeTheme == com.example.ui.theme.IdeTheme.WHITE) "Switch to Dark Mode" else "Switch to Light Mode",
-                                        tint = MaterialTheme.colorScheme.primary
-                                    )
-                                }
-
-                                Spacer(modifier = Modifier.width(2.dp))
-
-                                AssistChip(
-                                    onClick = { viewModel.setNavigationScreen(4) },
-                                    modifier = Modifier.widthIn(max = 130.dp),
-                                    label = {
-                                        val chipText = if (aiProviderSettings.mode == com.example.engine.inference.AiProviderMode.CLOUD_API) {
-                                            "☁️ ${aiProviderSettings.cloudProvider.displayName}"
-                                        } else {
-                                            val name = selectedModel?.name ?: "Gemma-2B"
-                                            if (name.contains("-")) name.substringBefore(".") else name.take(12)
-                                        }
-                                        Text(
-                                            text = chipText,
-                                            fontSize = 10.sp,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
+                                    IconButton(
+                                        onClick = { drawerScope.launch { drawerState.open() } },
+                                        modifier = Modifier.testTag("open_sessions_drawer_button")
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Menu,
+                                            contentDescription = "Chat Sessions Drawer",
+                                            tint = Color(0xFF818CF8)
                                         )
-                                    },
-                                    colors = AssistChipDefaults.assistChipColors(
-                                        containerColor = MaterialTheme.colorScheme.primaryContainer,
-                                        labelColor = MaterialTheme.colorScheme.onPrimaryContainer
+                                    }
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = "💻 " + (activeProject?.title ?: "Local AI IDE"),
+                                        fontSize = 15.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color.White,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
                                     )
-                                )
+                                }
 
-                                Spacer(modifier = Modifier.width(2.dp))
-
-                                IconButton(
-                                    onClick = { viewModel.setNavigationScreen(2) },
-                                    modifier = Modifier.testTag("run_preview_top_button")
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.End
                                 ) {
-                                    Icon(
-                                        imageVector = Icons.Default.PlayArrow,
-                                        contentDescription = "Run",
-                                        tint = MaterialTheme.colorScheme.secondary
+                                    IconButton(
+                                        onClick = {
+                                            val isCurrentlyLight = activeTheme == com.example.ui.theme.IdeTheme.WHITE
+                                            val nextTheme = if (isCurrentlyLight) com.example.ui.theme.IdeTheme.NIGHT else com.example.ui.theme.IdeTheme.WHITE
+                                            viewModel.setTheme(nextTheme)
+                                        },
+                                        modifier = Modifier.testTag("top_bar_theme_toggle_button")
+                                    ) {
+                                        Icon(
+                                            imageVector = if (activeTheme == com.example.ui.theme.IdeTheme.WHITE) Icons.Default.DarkMode else Icons.Default.LightMode,
+                                            contentDescription = if (activeTheme == com.example.ui.theme.IdeTheme.WHITE) "Switch to Dark Mode" else "Switch to Light Mode",
+                                            tint = Color(0xFF818CF8)
+                                        )
+                                    }
+
+                                    Spacer(modifier = Modifier.width(2.dp))
+
+                                    AssistChip(
+                                        onClick = { viewModel.setNavigationScreen(4) },
+                                        modifier = Modifier.widthIn(max = 130.dp),
+                                        label = {
+                                            val chipText = if (aiProviderSettings.mode == com.example.engine.inference.AiProviderMode.CLOUD_API) {
+                                                "☁️ ${aiProviderSettings.cloudProvider.displayName}"
+                                            } else {
+                                                val name = selectedModel?.name ?: "No Model"
+                                                if (name.contains("-")) name.substringBefore(".") else name.take(12)
+                                            }
+                                            Text(
+                                                text = chipText,
+                                                fontSize = 10.sp,
+                                                color = Color.White,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        },
+                                        border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.2f)),
+                                        colors = AssistChipDefaults.assistChipColors(
+                                            containerColor = Color(0xFF6366F1).copy(alpha = 0.25f),
+                                            labelColor = Color.White
+                                        )
                                     )
+
+                                    Spacer(modifier = Modifier.width(2.dp))
+
+                                    IconButton(
+                                        onClick = { viewModel.setNavigationScreen(2) },
+                                        modifier = Modifier.testTag("run_preview_top_button")
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.PlayArrow,
+                                            contentDescription = "Run",
+                                            tint = Color(0xFF22C55E)
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -522,15 +597,38 @@ fun MainScreen(viewModel: IdeViewModel) {
                 },
                 bottomBar = {
                 if (!(navScreen == 1 && isFullScreenEditor)) {
+                    val navItemColors = NavigationBarItemDefaults.colors(
+                        selectedIconColor = Color(0xFF818CF8),
+                        selectedTextColor = Color(0xFF818CF8),
+                        indicatorColor = Color(0xFF6366F1).copy(alpha = 0.25f),
+                        unselectedIconColor = Color.White.copy(alpha = 0.6f),
+                        unselectedTextColor = Color.White.copy(alpha = 0.6f)
+                    )
+
                     NavigationBar(
-                        containerColor = MaterialTheme.colorScheme.surface,
-                        contentColor = MaterialTheme.colorScheme.primary
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(80.dp)
+                            .drawBehind {
+                                val strokeWidth = 0.5.dp.toPx()
+                                drawLine(
+                                    color = Color.White.copy(alpha = 0.12f),
+                                    start = Offset(0f, 0f),
+                                    end = Offset(size.width, 0f),
+                                    strokeWidth = strokeWidth
+                                )
+                            }
+                            .navigationBarsPadding(),
+                        containerColor = Color.Black.copy(alpha = 0.5f),
+                        contentColor = Color.White,
+                        windowInsets = WindowInsets(0, 0, 0, 0)
                     ) {
                         NavigationBarItem(
                             selected = navScreen == 0,
                             onClick = { viewModel.setNavigationScreen(0) },
                             icon = { Icon(imageVector = Icons.Default.Folder, contentDescription = "Files") },
-                            label = { Text("Workspace", fontSize = 10.sp) },
+                            label = { Text("Workspace", fontSize = 10.sp, fontWeight = if (navScreen == 0) androidx.compose.ui.text.font.FontWeight.Bold else androidx.compose.ui.text.font.FontWeight.Medium) },
+                            colors = navItemColors,
                             modifier = Modifier.testTag("nav_workspace_tab")
                         )
 
@@ -538,7 +636,8 @@ fun MainScreen(viewModel: IdeViewModel) {
                             selected = navScreen == 1,
                             onClick = { viewModel.setNavigationScreen(1) },
                             icon = { Icon(imageVector = Icons.Default.Code, contentDescription = "Editor") },
-                            label = { Text("Editor", fontSize = 10.sp) },
+                            label = { Text("Editor", fontSize = 10.sp, fontWeight = if (navScreen == 1) androidx.compose.ui.text.font.FontWeight.Bold else androidx.compose.ui.text.font.FontWeight.Medium) },
+                            colors = navItemColors,
                             modifier = Modifier.testTag("nav_editor_tab")
                         )
 
@@ -546,7 +645,8 @@ fun MainScreen(viewModel: IdeViewModel) {
                             selected = navScreen == 2,
                             onClick = { viewModel.setNavigationScreen(2) },
                             icon = { Icon(imageVector = Icons.Default.Smartphone, contentDescription = "Preview") },
-                            label = { Text("Preview", fontSize = 10.sp) },
+                            label = { Text("Preview", fontSize = 10.sp, fontWeight = if (navScreen == 2) androidx.compose.ui.text.font.FontWeight.Bold else androidx.compose.ui.text.font.FontWeight.Medium) },
+                            colors = navItemColors,
                             modifier = Modifier.testTag("nav_preview_tab")
                         )
 
@@ -554,7 +654,8 @@ fun MainScreen(viewModel: IdeViewModel) {
                             selected = navScreen == 3,
                             onClick = { viewModel.setNavigationScreen(3) },
                             icon = { Icon(imageVector = Icons.Default.AutoAwesome, contentDescription = "Local AI") },
-                            label = { Text("Local AI", fontSize = 10.sp) },
+                            label = { Text("Local AI", fontSize = 10.sp, fontWeight = if (navScreen == 3) androidx.compose.ui.text.font.FontWeight.Bold else androidx.compose.ui.text.font.FontWeight.Medium) },
+                            colors = navItemColors,
                             modifier = Modifier.testTag("nav_ai_tab")
                         )
 
@@ -562,7 +663,8 @@ fun MainScreen(viewModel: IdeViewModel) {
                             selected = navScreen == 4,
                             onClick = { viewModel.setNavigationScreen(4) },
                             icon = { Icon(imageVector = Icons.Default.Settings, contentDescription = "Settings") },
-                            label = { Text("Settings", fontSize = 10.sp) },
+                            label = { Text("Settings", fontSize = 10.sp, fontWeight = if (navScreen == 4) androidx.compose.ui.text.font.FontWeight.Bold else androidx.compose.ui.text.font.FontWeight.Medium) },
+                            colors = navItemColors,
                             modifier = Modifier.testTag("nav_settings_tab")
                         )
                     }
@@ -603,7 +705,7 @@ fun MainScreen(viewModel: IdeViewModel) {
                             },
                             onCreateFile = { fileName, content -> viewModel.createNewFile(fileName, content) },
                             onDeleteFile = { viewModel.deleteFile(it) },
-                            onCreateProject = { title, desc, tmpl -> viewModel.createNewProject(title, desc, tmpl) },
+                            onCreateProject = { title, desc, tmpl, files -> viewModel.createNewProject(title, desc, tmpl, files) },
                             onInsertTemplate = { code ->
                                 viewModel.insertTemplateToActiveFile(code)
                                 viewModel.setNavigationScreen(1)
@@ -640,6 +742,9 @@ fun MainScreen(viewModel: IdeViewModel) {
                             onCreateBranch = { name, base -> viewModel.createBranch(name, base) },
                             onSwitchBranch = { viewModel.switchBranch(it) },
                             onDeleteBranch = { viewModel.deleteBranch(it) },
+                            onGitClone = { url, b -> viewModel.gitClone(url, b) },
+                            onGitPull = { viewModel.gitPull() },
+                            onGitPush = { msg -> viewModel.gitPush(msg) },
                             onTabSelected = { viewModel.selectTab(it) },
                             onTabClosed = { viewModel.closeTab(it) },
                             onCodeChanged = { viewModel.updateCodeContent(it) },
@@ -698,6 +803,8 @@ fun MainScreen(viewModel: IdeViewModel) {
 
                         4 -> SettingsScreen(
                             currentTheme = activeTheme,
+                            themeMode = themeMode,
+                            useDynamicColor = isDynamicColorEnabled,
                             models = allModels,
                             selectedModel = selectedModel,
                             importProgress = importProgress,
@@ -710,6 +817,8 @@ fun MainScreen(viewModel: IdeViewModel) {
                             isTestingConnection = isTestingCloudConnection,
                             connectionTestResult = cloudTestResult,
                             onThemeSelected = { viewModel.setTheme(it) },
+                            onThemeModeSelected = { viewModel.setThemeMode(it) },
+                            onToggleDynamicColor = { viewModel.setDynamicColorEnabled(it) },
                             onModelSelected = { viewModel.selectModelProfile(it) },
                             onImportGgufFile = { viewModel.importGgufModelUri(it) },
                             onDeleteModel = { viewModel.deleteModelProfile(it) },
@@ -735,8 +844,8 @@ fun MainScreen(viewModel: IdeViewModel) {
                             speedTokensPerSec = generationProgress?.speedTokensPerSec ?: (if (isGenerating) 18.4f else 0.0f),
                             tokensGenerated = generationProgress?.tokensGenerated ?: 0,
                             contextWindowTokens = contextWindow,
-                            modelSizeBytes = selectedModel?.sizeBytes ?: 1_680_000_000L,
-                            modelName = selectedModel?.name ?: "Gemma-2B-Q4_K_M.gguf"
+                            modelSizeBytes = selectedModel?.sizeBytes ?: 0L,
+                            modelName = selectedModel?.name ?: "No Local Model"
                         )
                     }
 
@@ -835,14 +944,37 @@ fun MainScreen(viewModel: IdeViewModel) {
                                 currentBranchName = currentBranch,
                                 onCreateBranch = { name, base -> viewModel.createBranch(name, base) },
                                 onSwitchBranch = { viewModel.switchBranch(it) },
-                                onDeleteBranch = { viewModel.deleteBranch(it) }
+                                onDeleteBranch = { viewModel.deleteBranch(it) },
+                                onGitClone = { url, b -> viewModel.gitClone(url, b) },
+                                onGitPull = { viewModel.gitPull() },
+                                onGitPush = { msg -> viewModel.gitPush(msg) }
                             )
                         }
+                    )
+                }
+                
+                if (showModelManagerDialog) {
+                    com.example.ui.components.ModelManagerDialog(
+                        models = allModels,
+                        selectedModel = selectedModel,
+                        downloadStates = downloadStates,
+                        expandedCategories = expandedCategories,
+                        onToggleCategory = { viewModel.toggleCategoryExpanded(it) },
+                        importProgress = importProgress,
+                        memoryCheckResult = memoryCheckResult,
+                        onModelSelected = { viewModel.selectModelProfile(it) },
+                        onOffloadModel = { viewModel.offloadModel() },
+                        onImportGgufFile = { viewModel.importGgufModelUri(it) },
+                        onDownloadFromUrl = { url, name -> viewModel.downloadGgufWithManager(context, url, name, null) },
+                        onDeleteModel = { viewModel.deleteModelProfile(it) },
+                        onDismissImportProgress = { viewModel.dismissImportProgress() },
+                        onDismiss = { showModelManagerDialog = false }
                     )
                 }
             }
         }
     }
+}
 }
 }
 

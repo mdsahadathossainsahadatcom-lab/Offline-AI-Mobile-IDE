@@ -209,7 +209,7 @@ fun PerformanceDashboard(
                 ) {
                     Column {
                         Text(
-                            text = selectedModel?.name ?: "Gemma-2B-Q4_K_M.gguf",
+                            text = selectedModel?.name ?: "No Local Model Selected",
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
                             color = Color(0xFF38BDF8)

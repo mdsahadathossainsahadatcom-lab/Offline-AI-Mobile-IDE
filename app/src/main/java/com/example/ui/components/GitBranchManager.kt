@@ -1,3 +1,4 @@
+@file:Suppress("DEPRECATION")
 package com.example.ui.components
 
 import androidx.compose.animation.AnimatedVisibility
@@ -30,6 +31,10 @@ import androidx.compose.material.icons.filled.FolderZip
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SwapHoriz
+import androidx.compose.material.icons.filled.CloudDownload
+import androidx.compose.material.icons.filled.CloudUpload
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.Tag
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -74,10 +79,16 @@ fun GitBranchManagerCard(
     onCreateBranch: (String, String) -> Boolean,
     onSwitchBranch: (String) -> Unit,
     onDeleteBranch: (String) -> Boolean,
+    onGitClone: (repoUrl: String, branch: String) -> Unit = { _, _ -> },
+    onGitPull: () -> Unit = {},
+    onGitPush: (commitMsg: String) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var searchQuery by remember { mutableStateOf("") }
     var isCreateDialogOpen by remember { mutableStateOf(false) }
+    var isCloneDialogOpen by remember { mutableStateOf(false) }
+    var isPushDialogOpen by remember { mutableStateOf(false) }
+    var actionBannerMessage by remember { mutableStateOf<String?>(null) }
 
     val filteredBranches = remember(branches, searchQuery) {
         if (searchQuery.isBlank()) branches
@@ -151,7 +162,77 @@ fun GitBranchManagerCard(
                 }
             }
 
-            Spacer(modifier = Modifier.height(14.dp))
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Git Commands Wrapper Toolbar: Clone, Pull, Push
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Color(0xFF020617), shape = RoundedCornerShape(10.dp))
+                    .border(1.dp, Color(0xFF1E293B), shape = RoundedCornerShape(10.dp))
+                    .padding(6.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Button(
+                    onClick = { isCloneDialogOpen = true },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7)),
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.weight(1f).height(32.dp).testTag("git_clone_button")
+                ) {
+                    Icon(imageVector = Icons.Default.CloudDownload, contentDescription = "Clone", modifier = Modifier.size(14.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("CLONE", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                }
+
+                Button(
+                    onClick = {
+                        onGitPull()
+                        actionBannerMessage = "Git pull executed: Synchronized with remote"
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0D9488)),
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.weight(1f).height(32.dp).testTag("git_pull_button")
+                ) {
+                    Icon(imageVector = Icons.Default.Sync, contentDescription = "Pull", modifier = Modifier.size(14.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("PULL", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                }
+
+                Button(
+                    onClick = { isPushDialogOpen = true },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF9333EA)),
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.weight(1f).height(32.dp).testTag("git_push_button")
+                ) {
+                    Icon(imageVector = Icons.Default.CloudUpload, contentDescription = "Push", modifier = Modifier.size(14.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("PUSH", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+
+            actionBannerMessage?.let { msg ->
+                Spacer(modifier = Modifier.height(8.dp))
+                Surface(
+                    shape = RoundedCornerShape(6.dp),
+                    color = Color(0xFF0284C7).copy(alpha = 0.15f),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF0284C7).copy(alpha = 0.4f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(text = msg, fontSize = 10.sp, color = Color(0xFF7DD3FC), fontFamily = FontFamily.Monospace)
+                        IconButton(onClick = { actionBannerMessage = null }, modifier = Modifier.size(16.dp)) {
+                            Icon(imageVector = Icons.Default.Close, contentDescription = "Close", tint = Color(0xFF7DD3FC), modifier = Modifier.size(12.dp))
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
 
             // Active Branch Banner Card
             activeBranch?.let { current ->
@@ -318,6 +399,27 @@ fun GitBranchManagerCard(
             }
         )
     }
+
+    if (isCloneDialogOpen) {
+        GitCloneDialog(
+            onDismiss = { isCloneDialogOpen = false },
+            onClone = { url, branch ->
+                onGitClone(url, branch)
+                actionBannerMessage = "Git clone initiated for '$url'"
+            }
+        )
+    }
+
+    if (isPushDialogOpen) {
+        GitPushDialog(
+            currentBranch = currentBranchName,
+            onDismiss = { isPushDialogOpen = false },
+            onPush = { msg ->
+                onGitPush(msg)
+                actionBannerMessage = "Git push initiated to origin/$currentBranchName"
+            }
+        )
+    }
 }
 
 @Composable
@@ -468,6 +570,9 @@ fun GitBranchSelectorChip(
     onCreateBranch: (String, String) -> Boolean,
     onSwitchBranch: (String) -> Unit,
     onDeleteBranch: (String) -> Boolean,
+    onGitClone: (repoUrl: String, branch: String) -> Unit = { _, _ -> },
+    onGitPull: () -> Unit = {},
+    onGitPush: (commitMsg: String) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var isDialogOpen by remember { mutableStateOf(false) }
@@ -523,7 +628,16 @@ fun GitBranchSelectorChip(
                         onSwitchBranch(name)
                         isDialogOpen = false
                     },
-                    onDeleteBranch = onDeleteBranch
+                    onDeleteBranch = onDeleteBranch,
+                    onGitClone = { url, b ->
+                        onGitClone(url, b)
+                        isDialogOpen = false
+                    },
+                    onGitPull = onGitPull,
+                    onGitPush = { msg ->
+                        onGitPush(msg)
+                        isDialogOpen = false
+                    }
                 )
             },
             containerColor = Color.Transparent
@@ -652,6 +766,159 @@ fun CreateBranchDialog(
                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981))
             ) {
                 Text("CREATE & CHECKOUT", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("CANCEL", fontSize = 10.sp, color = Color(0xFF94A3B8))
+            }
+        },
+        containerColor = Color(0xFF1E293B)
+    )
+}
+
+@Composable
+fun GitCloneDialog(
+    onDismiss: () -> Unit,
+    onClone: (repoUrl: String, branch: String) -> Unit
+) {
+    var repoUrl by remember { mutableStateOf("") }
+    var branchName by remember { mutableStateOf("main") }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(imageVector = Icons.Default.CloudDownload, contentDescription = null, tint = Color(0xFF38BDF8))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Git Clone Repository", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color.White)
+            }
+        },
+        text = {
+            Column {
+                Text("Repository Remote URL", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFFCBD5E1))
+                Spacer(modifier = Modifier.height(4.dp))
+                OutlinedTextField(
+                    value = repoUrl,
+                    onValueChange = { repoUrl = it; errorMessage = null },
+                    placeholder = { Text("https://github.com/username/repository.git", fontSize = 12.sp, color = Color(0xFF64748B)) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth().testTag("git_clone_url_input"),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = Color(0xFF38BDF8),
+                        unfocusedBorderColor = Color(0xFF334155),
+                        focusedContainerColor = Color(0xFF020617),
+                        unfocusedContainerColor = Color(0xFF020617),
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White
+                    ),
+                    shape = RoundedCornerShape(8.dp)
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Text("Target Branch", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFFCBD5E1))
+                Spacer(modifier = Modifier.height(4.dp))
+                OutlinedTextField(
+                    value = branchName,
+                    onValueChange = { branchName = it },
+                    placeholder = { Text("main", fontSize = 12.sp, color = Color(0xFF64748B)) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = Color(0xFF38BDF8),
+                        unfocusedBorderColor = Color(0xFF334155),
+                        focusedContainerColor = Color(0xFF020617),
+                        unfocusedContainerColor = Color(0xFF020617),
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White
+                    ),
+                    shape = RoundedCornerShape(8.dp)
+                )
+
+                errorMessage?.let { err ->
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(text = err, fontSize = 10.sp, color = Color(0xFFEF4444))
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    if (repoUrl.isBlank()) {
+                        errorMessage = "Repository URL is required"
+                    } else {
+                        onClone(repoUrl.trim(), branchName.ifBlank { "main" })
+                        onDismiss()
+                    }
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7)),
+                modifier = Modifier.testTag("git_clone_confirm_button")
+            ) {
+                Text("CLONE REPOSITORY", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("CANCEL", fontSize = 10.sp, color = Color(0xFF94A3B8))
+            }
+        },
+        containerColor = Color(0xFF1E293B)
+    )
+}
+
+@Composable
+fun GitPushDialog(
+    currentBranch: String,
+    onDismiss: () -> Unit,
+    onPush: (commitMessage: String) -> Unit
+) {
+    var commitMsg by remember { mutableStateOf("") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(imageVector = Icons.Default.CloudUpload, contentDescription = null, tint = Color(0xFFA855F7))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Git Push to Remote", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color.White)
+            }
+        },
+        text = {
+            Column {
+                Text("Remote Target: origin/$currentBranch", fontSize = 12.sp, color = Color(0xFF38BDF8), fontWeight = FontWeight.Medium)
+                Spacer(modifier = Modifier.height(10.dp))
+                Text("Commit Message", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFFCBD5E1))
+                Spacer(modifier = Modifier.height(4.dp))
+                OutlinedTextField(
+                    value = commitMsg,
+                    onValueChange = { commitMsg = it },
+                    placeholder = { Text("Update workspace files & layout", fontSize = 12.sp, color = Color(0xFF64748B)) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth().testTag("git_push_msg_input"),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = Color(0xFFA855F7),
+                        unfocusedBorderColor = Color(0xFF334155),
+                        focusedContainerColor = Color(0xFF020617),
+                        unfocusedContainerColor = Color(0xFF020617),
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White
+                    ),
+                    shape = RoundedCornerShape(8.dp)
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    onPush(commitMsg.ifBlank { "Update workspace files" })
+                    onDismiss()
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF9333EA)),
+                modifier = Modifier.testTag("git_push_confirm_button")
+            ) {
+                Text("PUSH COMMITS", fontSize = 10.sp, fontWeight = FontWeight.Bold)
             }
         },
         dismissButton = {

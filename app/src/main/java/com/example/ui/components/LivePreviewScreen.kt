@@ -6,6 +6,7 @@ import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -33,6 +34,8 @@ import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.DesktopWindows
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
@@ -56,6 +59,7 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -71,6 +75,7 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -339,9 +344,90 @@ fun LivePreviewScreen(
                     )
                 }
             }
+
+            // Small Expandable Log Console Overlay Bar (when collapsed)
+            if (!isConsoleVisible) {
+                val lastLog = consoleLogs.lastOrNull() ?: "Console ready. Waiting for log output..."
+                Surface(
+                    onClick = { isConsoleVisible = true },
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .fillMaxWidth(0.96f)
+                        .padding(bottom = 8.dp)
+                        .testTag("expandable_console_bar"),
+                    shape = RoundedCornerShape(10.dp),
+                    color = Color(0xFF0F172A).copy(alpha = 0.92f),
+                    tonalElevation = 6.dp,
+                    border = BorderStroke(1.dp, Color(0xFF334155))
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .padding(horizontal = 12.dp, vertical = 8.dp)
+                            .fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            modifier = Modifier.weight(1f),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Terminal,
+                                contentDescription = "Console",
+                                tint = if (errorCount > 0) Color(0xFFF43F5E) else Color(0xFF38BDF8),
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            if (errorCount > 0) {
+                                Surface(
+                                    shape = RoundedCornerShape(4.dp),
+                                    color = Color(0xFFF43F5E).copy(alpha = 0.2f),
+                                    modifier = Modifier.padding(end = 6.dp)
+                                ) {
+                                    Text(
+                                        text = "$errorCount errors",
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFFF43F5E),
+                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
+                            Text(
+                                text = lastLog,
+                                fontSize = 11.sp,
+                                fontFamily = FontFamily.Monospace,
+                                color = when {
+                                    lastLog.contains("ERROR", ignoreCase = true) -> Color(0xFFF43F5E)
+                                    lastLog.contains("WARN", ignoreCase = true) -> Color(0xFFFBBF24)
+                                    else -> Color(0xFF94A3B8)
+                                },
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = "${consoleLogs.size} logs",
+                                fontSize = 10.sp,
+                                color = Color(0xFF64748B),
+                                fontFamily = FontFamily.Monospace,
+                                modifier = Modifier.padding(end = 4.dp)
+                            )
+                            Icon(
+                                imageVector = Icons.Default.KeyboardArrowUp,
+                                contentDescription = "Expand Console",
+                                tint = Color(0xFF94A3B8),
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
+                }
+            }
         }
 
-        // 3. Dedicated DevTools Console Overlay
+        // 3. Dedicated DevTools Console Overlay (Expanded)
         if (isConsoleVisible) {
             Card(
                 modifier = Modifier
@@ -385,6 +471,17 @@ fun LivePreviewScreen(
                                     contentDescription = "Clear logs",
                                     tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
                                     modifier = Modifier.size(16.dp)
+                                )
+                            }
+                            IconButton(
+                                onClick = { isConsoleVisible = false },
+                                modifier = Modifier.size(28.dp).testTag("console_collapse_button")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.KeyboardArrowDown,
+                                    contentDescription = "Collapse console",
+                                    tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                                    modifier = Modifier.size(18.dp)
                                 )
                             }
                             IconButton(
@@ -636,9 +733,39 @@ fun LivePreviewScreen(
 }
 
 private fun buildCombinedWebPage(filesMap: Map<String, String>): String {
-    val rawHtml = filesMap["index.html"] ?: "<h1>No index.html found</h1>"
-    val cssContent = filesMap["style.css"] ?: ""
-    val jsContent = filesMap["script.js"] ?: ""
+    val mainHtmlEntry = filesMap["index.html"]
+        ?: filesMap["/index.html"]
+        ?: filesMap.entries.firstOrNull { it.key.lowercase().endsWith(".html") }?.value
+        ?: """
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                <style>
+                    body { font-family: system-ui, -apple-system, sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; background-color: #0f172a; color: #f8fafc; text-align: center; padding: 20px; }
+                    h1 { color: #38bdf8; font-size: 24px; margin-bottom: 8px; }
+                    p { color: #94a3b8; font-size: 14px; max-width: 400px; line-height: 1.5; }
+                    .card { background: #1e293b; border: 1px solid #334155; padding: 24px; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.3); }
+                </style>
+            </head>
+            <body>
+                <div class="card">
+                    <h1>Live Preview Ready</h1>
+                    <p>Create an <code>index.html</code> file in your workspace editor to start rendering web projects live!</p>
+                </div>
+            </body>
+            </html>
+        """.trimIndent()
+
+    // Aggregate CSS contents from all .css files in workspace
+    val aggregatedCss = filesMap.entries
+        .filter { it.key.lowercase().endsWith(".css") }
+        .joinToString("\n\n") { entry -> "/* --- ${entry.key} --- */\n${entry.value}" }
+
+    // Aggregate JS contents from all .js files in workspace
+    val aggregatedJs = filesMap.entries
+        .filter { it.key.lowercase().endsWith(".js") }
+        .joinToString("\n\n") { entry -> "/* --- ${entry.key} --- */\n${entry.value}" }
 
     // Inject Error Interceptor Bridge
     val jsInterceptor = """
@@ -702,7 +829,7 @@ private fun buildCombinedWebPage(filesMap: Map<String, String>): String {
         </script>
     """.trimIndent()
 
-    var resultHtml = rawHtml
+    var resultHtml = mainHtmlEntry
     if (!resultHtml.contains("AndroidBridge")) {
         val headIdx = resultHtml.indexOf("<head>", ignoreCase = true)
         resultHtml = if (headIdx != -1) {
@@ -712,9 +839,9 @@ private fun buildCombinedWebPage(filesMap: Map<String, String>): String {
         }
     }
 
-    // Inject CSS into head if not already external linked
-    if (cssContent.isNotBlank()) {
-        val styleTag = "\n<style>\n$cssContent\n</style>\n"
+    // Inject CSS into head if style tags/links not present or to ensure custom CSS is applied
+    if (aggregatedCss.isNotBlank()) {
+        val styleTag = "\n<style>\n$aggregatedCss\n</style>\n"
         val closeHeadIdx = resultHtml.indexOf("</head>", ignoreCase = true)
         resultHtml = if (closeHeadIdx != -1) {
             resultHtml.substring(0, closeHeadIdx) + styleTag + resultHtml.substring(closeHeadIdx)
@@ -724,8 +851,8 @@ private fun buildCombinedWebPage(filesMap: Map<String, String>): String {
     }
 
     // Inject JS into body
-    if (jsContent.isNotBlank()) {
-        val scriptTag = "\n<script>\n$jsContent\n</script>\n"
+    if (aggregatedJs.isNotBlank()) {
+        val scriptTag = "\n<script>\n$aggregatedJs\n</script>\n"
         val closeBodyIdx = resultHtml.indexOf("</body>", ignoreCase = true)
         resultHtml = if (closeBodyIdx != -1) {
             resultHtml.substring(0, closeBodyIdx) + scriptTag + resultHtml.substring(closeBodyIdx)

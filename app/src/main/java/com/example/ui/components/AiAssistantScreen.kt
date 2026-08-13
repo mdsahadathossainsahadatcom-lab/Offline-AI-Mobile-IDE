@@ -1,6 +1,13 @@
 package com.example.ui.components
 
 import android.widget.Toast
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -244,62 +251,71 @@ fun AiAssistantScreen(
             context = context,
             speedTokensPerSec = generationProgress?.speedTokensPerSec ?: (if (isGenerating) 18.5f else 0.0f),
             tokensGenerated = generationProgress?.tokensGenerated ?: 0,
-            modelSizeBytes = selectedModel?.sizeBytes ?: 1_680_000_000L,
-            modelName = selectedModel?.name ?: "Gemma-2B-Q4_K_M.gguf"
+            modelSizeBytes = selectedModel?.sizeBytes ?: 0L,
+            modelName = selectedModel?.name ?: "No Local Model"
         )
     }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
+            .background(Color(0xFF0F172A))
             .padding(12.dp)
     ) {
-        // Clean Minimalist Top App Bar Header
-        Row(
+        // Glass Top App Bar Header Card
+        Card(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 4.dp, vertical = 4.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+                .padding(bottom = 8.dp),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B).copy(alpha = 0.65f)),
+            border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.15f)),
+            shape = RoundedCornerShape(16.dp)
         ) {
-            Column(
+            Row(
                 modifier = Modifier
-                    .weight(1f)
-                    .clickable { showHistorySheet = true }
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clickable { showHistorySheet = true }
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = activeSessionName.ifBlank { "Chat" },
+                            fontSize = 17.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Icon(
+                            imageVector = Icons.Default.KeyboardArrowDown,
+                            contentDescription = "Session History",
+                            tint = Color.White.copy(alpha = 0.7f),
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
                     Text(
-                        text = activeSessionName.ifBlank { "Chat" },
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onBackground
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Icon(
-                        imageVector = Icons.Default.KeyboardArrowDown,
-                        contentDescription = "Session History",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(18.dp)
+                        text = selectedModel?.name ?: "gemma-4-E2B-it-Q4_K_M.gguf",
+                        fontSize = 11.sp,
+                        color = Color.White.copy(alpha = 0.7f),
+                        maxLines = 1
                     )
                 }
-                Text(
-                    text = selectedModel?.name ?: "gemma-4-E2B-it-Q4_K_M.gguf",
-                    fontSize = 11.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                    maxLines = 1
-                )
-            }
 
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = { localGgufPickerLauncher.launch(arrayOf("*/*")) }) {
-                    Icon(imageVector = Icons.Default.AttachFile, contentDescription = "Import GGUF", tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                IconButton(onClick = { showDiagnosticPanel = !showDiagnosticPanel }) {
-                    Icon(imageVector = Icons.Default.Analytics, contentDescription = "Diagnostics", tint = if (showDiagnosticPanel) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                IconButton(onClick = { onCreateNewSession("New Chat Session") }) {
-                    Icon(imageVector = Icons.Default.Add, contentDescription = "New Chat", tint = MaterialTheme.colorScheme.primary)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = { localGgufPickerLauncher.launch(arrayOf("*/*")) }) {
+                        Icon(imageVector = Icons.Default.AttachFile, contentDescription = "Import GGUF", tint = Color.White.copy(alpha = 0.8f))
+                    }
+                    IconButton(onClick = { showDiagnosticPanel = !showDiagnosticPanel }) {
+                        Icon(imageVector = Icons.Default.Analytics, contentDescription = "Diagnostics", tint = if (showDiagnosticPanel) Color(0xFF818CF8) else Color.White.copy(alpha = 0.8f))
+                    }
+                    IconButton(onClick = { onCreateNewSession("New Chat Session") }) {
+                        Icon(imageVector = Icons.Default.Add, contentDescription = "New Chat", tint = Color(0xFF6366F1))
+                    }
                 }
             }
         }
@@ -329,8 +345,9 @@ fun AiAssistantScreen(
         if (generationProgress != null) {
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                shape = RoundedCornerShape(12.dp)
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B).copy(alpha = 0.7f)),
+                border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.15f)),
+                shape = RoundedCornerShape(16.dp)
             ) {
                 Column(modifier = Modifier.padding(12.dp)) {
                     Row(
@@ -404,144 +421,42 @@ fun AiAssistantScreen(
         ) {
             if (sessionMessages.isNotEmpty()) {
                 items(sessionMessages) { msg ->
-                    if (msg.sender == "User") {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.End
-                        ) {
-                            Surface(
-                                color = MaterialTheme.colorScheme.primaryContainer,
-                                shape = RoundedCornerShape(18.dp, 18.dp, 4.dp, 18.dp),
-                                modifier = Modifier.widthIn(max = 300.dp)
-                            ) {
-                                Text(
-                                    text = msg.content,
-                                    fontSize = 13.sp,
-                                    color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                    modifier = Modifier.padding(12.dp)
-                                )
-                            }
-                        }
-                    } else {
-                        val parsed = parseThoughtAndContent(msg.content)
-                        Column(modifier = Modifier.fillMaxWidth()) {
-                            if (!parsed.reasoning.isNullOrBlank()) {
-                                ThinkingProcessCard(
-                                    reasoningText = parsed.reasoning,
-                                    isThinking = false
-                                )
-                                Spacer(modifier = Modifier.height(6.dp))
-                            }
-                            Card(
-                                modifier = Modifier.fillMaxWidth(),
-                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                                shape = RoundedCornerShape(16.dp),
-                                border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.15f))
-                            ) {
-                                Column(modifier = Modifier.padding(12.dp)) {
-                                    val segments = parseResponseSegments(parsed.mainContent)
-                                    segments.forEach { segment ->
-                                        if (segment.isCodeBlock) {
-                                            CodeInjectionBlockView(
-                                                code = segment.text,
-                                                language = segment.language,
-                                                projectFilePaths = projectFilePaths,
-                                                onApply = { targetFile, codeSnippet, isAppend ->
-                                                    onApplyCodeToWorkspace(targetFile, codeSnippet, isAppend)
-                                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                                    Toast.makeText(context, "Successfully updated $targetFile", Toast.LENGTH_SHORT).show()
-                                                }
-                                            )
-                                            Spacer(modifier = Modifier.height(6.dp))
-                                        } else {
-                                            Text(
-                                                text = segment.text,
-                                                fontSize = 13.sp,
-                                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.9f),
-                                                lineHeight = 18.sp
-                                            )
-                                            Spacer(modifier = Modifier.height(4.dp))
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
+                    val isUser = msg.sender.equals("User", ignoreCase = true)
+                    ChatMessageItem(
+                        sender = msg.sender,
+                        content = msg.content,
+                        isUser = isUser,
+                        projectFilePaths = projectFilePaths,
+                        onApplyCodeToWorkspace = onApplyCodeToWorkspace
+                    )
                 }
             } else {
                 items(chatHistory) { chat ->
-                    val parsed = parseThoughtAndContent(chat.aiResponse)
-                    Column(modifier = Modifier.fillMaxWidth()) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(bottom = 6.dp),
-                            horizontalArrangement = Arrangement.End
-                        ) {
-                            Surface(
-                                color = MaterialTheme.colorScheme.primaryContainer,
-                                shape = RoundedCornerShape(18.dp, 18.dp, 4.dp, 18.dp),
-                                modifier = Modifier.widthIn(max = 300.dp)
-                            ) {
-                                Text(
-                                    text = chat.prompt,
-                                    fontSize = 13.sp,
-                                    color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                    modifier = Modifier.padding(12.dp)
-                                )
-                            }
-                        }
-
-                        if (!parsed.reasoning.isNullOrBlank()) {
-                            ThinkingProcessCard(
-                                reasoningText = parsed.reasoning,
-                                isThinking = false
-                            )
-                            Spacer(modifier = Modifier.height(6.dp))
-                        }
-
-                        Card(
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                            shape = RoundedCornerShape(16.dp),
-                            border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.15f))
-                        ) {
-                            Column(modifier = Modifier.padding(12.dp)) {
-                                val segments = parseResponseSegments(parsed.mainContent)
-                                segments.forEach { segment ->
-                                    if (segment.isCodeBlock) {
-                                        CodeInjectionBlockView(
-                                            code = segment.text,
-                                            language = segment.language,
-                                            projectFilePaths = projectFilePaths,
-                                            onApply = { targetFile, codeSnippet, isAppend ->
-                                                onApplyCodeToWorkspace(targetFile, codeSnippet, isAppend)
-                                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                                Toast.makeText(context, "Successfully updated $targetFile", Toast.LENGTH_SHORT).show()
-                                            }
-                                        )
-                                        Spacer(modifier = Modifier.height(6.dp))
-                                    } else {
-                                        Text(
-                                            text = segment.text,
-                                            fontSize = 13.sp,
-                                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.9f),
-                                            lineHeight = 18.sp
-                                        )
-                                        Spacer(modifier = Modifier.height(4.dp))
-                                    }
-                                }
-                            }
-                        }
-                    }
+                    ChatMessageItem(
+                        sender = "User",
+                        content = chat.prompt,
+                        isUser = true,
+                        projectFilePaths = projectFilePaths,
+                        onApplyCodeToWorkspace = onApplyCodeToWorkspace
+                    )
+                    ChatMessageItem(
+                        sender = "AI",
+                        content = chat.aiResponse,
+                        isUser = false,
+                        projectFilePaths = projectFilePaths,
+                        onApplyCodeToWorkspace = onApplyCodeToWorkspace
+                    )
                 }
             }
 
             if (isGenerating) {
                 item {
+                    val rawLog = generationProgress?.rawLogText?.ifBlank { "Analyzing prompt and generating reasoning steps..." } ?: "Thinking through response..."
+                    val parsedStream = com.example.util.ReasoningParser.parse(rawLog)
                     ThinkingProcessCard(
-                        reasoningText = generationProgress?.rawLogText?.ifBlank { "Analyzing prompt and generating steps..." } ?: "Thinking through response...",
-                        isThinking = true
+                        thinkingText = if (parsedStream.thinkingText.isNotEmpty()) parsedStream.thinkingText else rawLog,
+                        isCurrentlyThinking = true,
+                        isThinkingFinished = false
                     )
                 }
             }
@@ -615,8 +530,7 @@ fun AiAssistantScreen(
                             items(chatSessions) { session ->
                                 val isSelected = session.sessionId == activeSessionId
                                 val dateStr = remember(session.lastModified) {
-                                    java.text.SimpleDateFormat("MMM dd, HH:mm", java.util.Locale.getDefault())
-                                        .format(java.util.Date(session.lastModified))
+                                    com.example.util.DateUtils.formatSessionTimestamp(session.lastModified)
                                 }
 
                                 Card(
@@ -764,10 +678,12 @@ fun AiAssistantScreen(
                             .replace("🎨 ", "")
                             .replace("📱 ", "")
                     },
-                    label = { Text(pill, fontSize = 11.sp, maxLines = 1) },
+                    label = { Text(pill, fontSize = 11.sp, color = Color.White, maxLines = 1) },
+                    shape = CircleShape,
+                    border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.15f)),
                     colors = AssistChipDefaults.assistChipColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                        labelColor = MaterialTheme.colorScheme.onSurfaceVariant
+                        containerColor = Color(0xFF1E293B).copy(alpha = 0.6f),
+                        labelColor = Color.White
                     )
                 )
             }
@@ -780,10 +696,10 @@ fun AiAssistantScreen(
             modifier = Modifier
                 .fillMaxWidth()
                 .imePadding(),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.95f)),
+            colors = CardDefaults.cardColors(containerColor = Color.Black.copy(alpha = 0.45f)),
             shape = RoundedCornerShape(24.dp),
-            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.15f))
+            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+            border = BorderStroke(0.8.dp, Color.White.copy(alpha = 0.15f))
         ) {
             Column(
                 modifier = Modifier
@@ -793,7 +709,8 @@ fun AiAssistantScreen(
                 if (selectedImageUri != null) {
                     Surface(
                         shape = RoundedCornerShape(8.dp),
-                        color = MaterialTheme.colorScheme.primaryContainer,
+                        color = Color(0xFF6366F1).copy(alpha = 0.3f),
+                        border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.2f)),
                         modifier = Modifier.padding(bottom = 6.dp)
                     ) {
                         Row(
@@ -804,14 +721,14 @@ fun AiAssistantScreen(
                             Icon(
                                 imageVector = Icons.Default.Image,
                                 contentDescription = "Attached Image",
-                                tint = MaterialTheme.colorScheme.primary,
+                                tint = Color(0xFF818CF8),
                                 modifier = Modifier.size(14.dp)
                             )
                             Text(
                                 text = "Image attached",
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Medium,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                                color = Color.White
                             )
                             IconButton(
                                 onClick = { selectedImageUri = null },
@@ -820,7 +737,7 @@ fun AiAssistantScreen(
                                 Icon(
                                     imageVector = Icons.Default.Close,
                                     contentDescription = "Remove Image",
-                                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    tint = Color.White.copy(alpha = 0.8f),
                                     modifier = Modifier.size(12.dp)
                                 )
                             }
@@ -835,18 +752,21 @@ fun AiAssistantScreen(
                         Text(
                             text = "Type your message here...",
                             fontSize = 13.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                            color = Color.White.copy(alpha = 0.5f)
                         )
                     },
+                    textStyle = androidx.compose.ui.text.TextStyle(color = Color.White, fontSize = 14.sp),
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = false,
                     maxLines = 4,
                     shape = RoundedCornerShape(16.dp),
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedContainerColor = MaterialTheme.colorScheme.surface,
-                        unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+                        focusedContainerColor = Color.Transparent,
+                        unfocusedContainerColor = Color.Transparent,
                         focusedBorderColor = Color.Transparent,
-                        unfocusedBorderColor = Color.Transparent
+                        unfocusedBorderColor = Color.Transparent,
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White
                     )
                 )
 
@@ -858,8 +778,9 @@ fun AiAssistantScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Row(
+                        modifier = Modifier.weight(1f, fill = false),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         IconButton(
                             onClick = { imagePickerLauncher.launch("image/*") },
@@ -868,7 +789,7 @@ fun AiAssistantScreen(
                             Icon(
                                 imageVector = Icons.Default.Add,
                                 contentDescription = "Attachment",
-                                tint = if (selectedImageUri != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                tint = if (selectedImageUri != null) Color(0xFF818CF8) else Color.White.copy(alpha = 0.7f),
                                 modifier = Modifier.size(20.dp)
                             )
                         }
@@ -879,26 +800,26 @@ fun AiAssistantScreen(
                                 isThinkModeEnabled = !isThinkModeEnabled
                             },
                             shape = CircleShape,
-                            color = if (isThinkModeEnabled) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
-                            border = if (isThinkModeEnabled) null else BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)),
-                            modifier = Modifier.height(32.dp)
+                            color = if (isThinkModeEnabled) Color(0xFF6366F1).copy(alpha = 0.35f) else Color.White.copy(alpha = 0.08f),
+                            border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.18f)),
+                            modifier = Modifier.height(36.dp)
                         ) {
                             Row(
-                                modifier = Modifier.padding(horizontal = 10.dp),
+                                modifier = Modifier.padding(horizontal = 12.dp),
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.AutoAwesome,
                                     contentDescription = "Think Toggle",
-                                    tint = if (isThinkModeEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.size(14.dp)
+                                    tint = if (isThinkModeEnabled) Color(0xFF818CF8) else Color.White.copy(alpha = 0.7f),
+                                    modifier = Modifier.size(15.dp)
                                 )
                                 Text(
                                     text = "Think",
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = if (isThinkModeEnabled) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
+                                    color = Color.White
                                 )
                             }
                         }
@@ -909,20 +830,27 @@ fun AiAssistantScreen(
                                 isAgentMode = !isAgentMode
                             },
                             shape = CircleShape,
-                            color = if (isAgentMode) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
-                            border = if (isAgentMode) null else BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)),
-                            modifier = Modifier.height(32.dp)
+                            color = if (isAgentMode) Color(0xFF0284C7).copy(alpha = 0.35f) else Color.White.copy(alpha = 0.08f),
+                            border = BorderStroke(0.5.dp, if (isAgentMode) Color(0xFF38BDF8).copy(alpha = 0.5f) else Color.White.copy(alpha = 0.18f)),
+                            modifier = Modifier.height(36.dp)
                         ) {
                             Row(
-                                modifier = Modifier.padding(horizontal = 10.dp),
+                                modifier = Modifier.padding(horizontal = 12.dp),
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
+                                if (isAgentMode) {
+                                    Surface(
+                                        shape = CircleShape,
+                                        color = Color(0xFF38BDF8),
+                                        modifier = Modifier.size(6.dp)
+                                    ) {}
+                                }
                                 Text(
                                     text = "🤖 Agent",
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = if (isAgentMode) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
+                                    color = if (isAgentMode) Color(0xFF38BDF8) else Color.White
                                 )
                             }
                         }
@@ -939,7 +867,7 @@ fun AiAssistantScreen(
                             Icon(
                                 imageVector = if (isSpeaking) Icons.AutoMirrored.Filled.VolumeOff else Icons.AutoMirrored.Filled.VolumeUp,
                                 contentDescription = "Read Aloud Speaker",
-                                tint = if (isSpeaking) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                tint = if (isSpeaking) Color(0xFF818CF8) else Color.White.copy(alpha = 0.7f),
                                 modifier = Modifier.size(20.dp)
                             )
                         }
@@ -950,6 +878,7 @@ fun AiAssistantScreen(
                                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                     val formattedPrompt = buildString {
                                         append(promptInput)
+                                        append("\n\n[SYSTEM INSTRUCTION: You are fully optimized to understand and respond in Bengali when the user speaks Bengali. However, maintain all internal system tags (like <think> or <tool_call>) strictly in English.]")
                                         if (isThinkModeEnabled) {
                                             append("\n\n[SYSTEM INSTRUCTION: Step-by-step reasoning MUST be enclosed in <think>...</think> tags.]")
                                         }
@@ -969,8 +898,10 @@ fun AiAssistantScreen(
                             enabled = promptInput.isNotBlank() && !isGenerating,
                             shape = CircleShape,
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = MaterialTheme.colorScheme.primary,
-                                disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant
+                                containerColor = Color(0xFF6366F1),
+                                disabledContainerColor = Color.White.copy(alpha = 0.15f),
+                                contentColor = Color.White,
+                                disabledContentColor = Color.White.copy(alpha = 0.4f)
                             ),
                             modifier = Modifier.size(38.dp),
                             contentPadding = PaddingValues(0.dp)
@@ -1088,111 +1019,194 @@ fun AgentPlanningCard(
     agentState: AgentState,
     onCancelAgent: () -> Unit
 ) {
+    val infiniteTransition = rememberInfiniteTransition(label = "AgentPulse")
+    val pulsingAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.4f,
+        targetValue = 1.0f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 700, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "CyanDotPulse"
+    )
+
     Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+        modifier = Modifier
+            .fillMaxWidth()
+            .animateContentSize(),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF020617).copy(alpha = 0.8f)),
+        border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.15f)),
         shape = RoundedCornerShape(16.dp)
     ) {
-        Column(modifier = Modifier.padding(12.dp)) {
+        Column(modifier = Modifier.padding(14.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Default.AutoAwesome,
-                        contentDescription = "Agent Engine",
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
+                    if (agentState.isRunning) {
+                        Surface(
+                            shape = CircleShape,
+                            color = Color(0xFF38BDF8).copy(alpha = pulsingAlpha),
+                            modifier = Modifier.size(8.dp)
+                        ) {}
+                        Spacer(modifier = Modifier.width(8.dp))
+                    } else {
+                        Icon(
+                            imageVector = Icons.Default.AutoAwesome,
+                            contentDescription = "Agent Engine",
+                            tint = Color(0xFF38BDF8),
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                    }
                     Text(
                         text = "Autonomous ReAct Agent",
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface
+                        color = Color.White
                     )
                 }
 
                 if (agentState.isRunning) {
-                    OutlinedButton(
-                        onClick = onCancelAgent,
-                        modifier = Modifier.height(28.dp),
-                        shape = RoundedCornerShape(14.dp),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        Text("Cancel Agent", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                        Surface(
+                            shape = CircleShape,
+                            color = Color(0xFF0284C7).copy(alpha = 0.3f),
+                            border = BorderStroke(0.5.dp, Color(0xFF38BDF8).copy(alpha = 0.5f))
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Surface(
+                                    shape = CircleShape,
+                                    color = Color(0xFF38BDF8).copy(alpha = pulsingAlpha),
+                                    modifier = Modifier.size(6.dp)
+                                ) {}
+                                Text(
+                                    text = "Executing...",
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF38BDF8)
+                                )
+                            }
+                        }
+
+                        OutlinedButton(
+                            onClick = onCancelAgent,
+                            modifier = Modifier.height(26.dp),
+                            shape = RoundedCornerShape(13.dp),
+                            border = BorderStroke(0.5.dp, Color(0xFFEF4444).copy(alpha = 0.5f)),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFEF4444)),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+                        ) {
+                            Text("Cancel", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                        }
                     }
                 } else if (agentState.isCancelled) {
-                    AssistChip(
-                        onClick = {},
-                        label = { Text("Cancelled", fontSize = 10.sp) },
-                        colors = AssistChipDefaults.assistChipColors(containerColor = MaterialTheme.colorScheme.errorContainer)
-                    )
+                    Surface(
+                        shape = CircleShape,
+                        color = Color(0xFFEF4444).copy(alpha = 0.2f),
+                        border = BorderStroke(0.5.dp, Color(0xFFEF4444).copy(alpha = 0.4f))
+                    ) {
+                        Text(
+                            text = "Cancelled",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFFFCA5A5),
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                        )
+                    }
                 } else {
-                    AssistChip(
-                        onClick = {},
-                        label = { Text("Completed", fontSize = 10.sp) },
-                        colors = AssistChipDefaults.assistChipColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
-                    )
+                    Surface(
+                        shape = CircleShape,
+                        color = Color(0xFF10B981).copy(alpha = 0.2f),
+                        border = BorderStroke(0.5.dp, Color(0xFF10B981).copy(alpha = 0.4f))
+                    ) {
+                        Text(
+                            text = "Completed",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF6EE7B7),
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                        )
+                    }
                 }
             }
 
-            Spacer(modifier = Modifier.height(6.dp))
+            Spacer(modifier = Modifier.height(8.dp))
             Text(
                 text = "Goal: ${agentState.userGoal}",
                 fontSize = 12.sp,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.85f),
+                color = Color.White.copy(alpha = 0.9f),
                 fontWeight = FontWeight.SemiBold
             )
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // Step Checklist
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                agentState.steps.forEach { step ->
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        val (icon, color) = when (step.status) {
-                            AgentStepStatus.COMPLETED -> "🟢" to Color(0xFF10B981)
-                            AgentStepStatus.IN_PROGRESS -> "🟡" to Color(0xFFF59E0B)
-                            AgentStepStatus.FAILED -> "🔴" to Color(0xFFEF4444)
-                            AgentStepStatus.PENDING -> "⚪" to Color(0xFF94A3B8)
-                        }
+            // Step Checklist inside terminal glass container
+            Surface(
+                shape = RoundedCornerShape(10.dp),
+                color = Color.Black.copy(alpha = 0.4f),
+                border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.08f)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    agentState.steps.forEach { step ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            val (icon, color) = when (step.status) {
+                                AgentStepStatus.COMPLETED -> "🟢" to Color(0xFF10B981)
+                                AgentStepStatus.IN_PROGRESS -> "🟡" to Color(0xFFF59E0B)
+                                AgentStepStatus.FAILED -> "🔴" to Color(0xFFEF4444)
+                                AgentStepStatus.PENDING -> "⚪" to Color(0xFF94A3B8)
+                            }
 
-                        Text(text = icon, fontSize = 11.sp)
-                        Spacer(modifier = Modifier.width(6.dp))
+                            Text(text = icon, fontSize = 11.sp)
+                            Spacer(modifier = Modifier.width(6.dp))
 
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "Step ${step.stepIndex}: ${step.thought}",
-                                fontSize = 11.sp,
-                                fontWeight = if (step.status == AgentStepStatus.IN_PROGRESS) FontWeight.Bold else FontWeight.Normal,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                            if (step.observation.isNotBlank()) {
+                            Column(modifier = Modifier.weight(1f)) {
                                 Text(
-                                    text = "→ ${step.observation}",
-                                    fontSize = 10.sp,
+                                    text = "Step ${step.stepIndex}: ${step.thought}",
+                                    fontSize = 11.sp,
                                     fontFamily = FontFamily.Monospace,
-                                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.9f)
+                                    fontWeight = if (step.status == AgentStepStatus.IN_PROGRESS) FontWeight.Bold else FontWeight.Normal,
+                                    color = if (step.status == AgentStepStatus.IN_PROGRESS) Color(0xFF38BDF8) else Color.White.copy(alpha = 0.85f)
                                 )
+                                if (step.observation.isNotBlank()) {
+                                    Text(
+                                        text = "→ ${step.observation}",
+                                        fontSize = 10.sp,
+                                        fontFamily = FontFamily.Monospace,
+                                        color = Color(0xFF818CF8)
+                                    )
+                                }
                             }
                         }
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                text = agentState.statusMessage,
-                fontSize = 10.sp,
-                fontFamily = FontFamily.Monospace,
-                color = MaterialTheme.colorScheme.secondary
-            )
+            if (agentState.statusMessage.isNotBlank()) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = agentState.statusMessage,
+                    fontSize = 10.sp,
+                    fontFamily = FontFamily.Monospace,
+                    color = Color(0xFF38BDF8).copy(alpha = 0.9f)
+                )
+            }
         }
     }
 }

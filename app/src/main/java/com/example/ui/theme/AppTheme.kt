@@ -13,6 +13,12 @@ enum class IdeTheme(val displayName: String, val icon: String) {
     YELLOW("Yellow (Warm)", "🟡")
 }
 
+enum class ThemeMode(val displayName: String, val icon: String, val description: String) {
+    LIGHT("Light Mode", "☀️", "Light theme"),
+    DARK("Dark Mode", "🌙", "Dark theme"),
+    SYSTEM("System Default", "📱", "Follow device settings")
+}
+
 val NightColorScheme = darkColorScheme(
     primary = NightPrimary,
     onPrimary = NightOnPrimary,

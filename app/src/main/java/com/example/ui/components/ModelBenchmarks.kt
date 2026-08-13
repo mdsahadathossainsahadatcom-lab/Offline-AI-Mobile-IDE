@@ -108,7 +108,7 @@ fun ModelBenchmarksCard(
     }
 
     // Recalculate baseline if model changes
-    val activeModelName = selectedModel?.name ?: models.firstOrNull { it.isSelected }?.name ?: "Gemma-2B-Q4_K_M.gguf"
+    val activeModelName = selectedModel?.name ?: models.firstOrNull { it.isSelected }?.name ?: "No Local Model"
     val quantType = selectedModel?.quantType ?: "Q4_K_M"
 
     fun triggerBenchmarkRun() {
