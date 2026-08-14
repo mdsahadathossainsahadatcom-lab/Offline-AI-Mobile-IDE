@@ -10,9 +10,11 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -57,6 +59,7 @@ fun GgufModelFileSystemCard(
     Card(
         modifier = modifier
             .fillMaxWidth()
+            .wrapContentHeight()
             .then(if (onCardClick != null) Modifier.clickable { onCardClick() } else Modifier)
             .testTag("gguf_model_file_system_card"),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -66,12 +69,15 @@ fun GgufModelFileSystemCard(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
+                .wrapContentHeight()
                 .padding(16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             // Left Column (Title & Description): Modifier.weight(1f) to occupy available horizontal space
             Column(
-                modifier = Modifier.weight(1f)
+                modifier = Modifier
+                    .weight(1f)
+                    .wrapContentHeight()
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Box(
@@ -107,12 +113,18 @@ fun GgufModelFileSystemCard(
 
                 if (onManageClick != null || onImportClick != null) {
                     Spacer(modifier = Modifier.height(12.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                         if (onManageClick != null) {
                             OutlinedButton(
                                 onClick = onManageClick,
                                 shape = RoundedCornerShape(10.dp),
-                                modifier = Modifier.height(32.dp).testTag("open_gguf_manager_button")
+                                modifier = Modifier
+                                    .heightIn(min = 36.dp)
+                                    .wrapContentHeight()
+                                    .testTag("open_gguf_manager_button")
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Tune,
@@ -128,7 +140,9 @@ fun GgufModelFileSystemCard(
                             Button(
                                 onClick = onImportClick,
                                 shape = RoundedCornerShape(10.dp),
-                                modifier = Modifier.height(32.dp)
+                                modifier = Modifier
+                                    .heightIn(min = 36.dp)
+                                    .wrapContentHeight()
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.FileOpen,

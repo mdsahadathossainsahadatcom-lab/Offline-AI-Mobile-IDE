@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -255,8 +256,8 @@ fun LivePreviewScreen(
 
         // 2. WebView Canvas Area with Viewport Framing
         val viewportWidthModifier = when (viewportMode) {
-            "MOBILE" -> Modifier.width(360.dp)
-            "TABLET" -> Modifier.width(600.dp)
+            "MOBILE" -> Modifier.fillMaxWidth().widthIn(max = 380.dp)
+            "TABLET" -> Modifier.fillMaxWidth().widthIn(max = 720.dp)
             else -> Modifier.fillMaxWidth()
         }
 

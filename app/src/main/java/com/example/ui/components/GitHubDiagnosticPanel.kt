@@ -17,9 +17,11 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -290,8 +292,9 @@ fun GitHubDiagnosticPanel(
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .height(180.dp)
-                                    .background(Color(0xFF1E293B), shape = RoundedCornerShape(12.dp)),
+                                    .wrapContentHeight()
+                                    .background(Color(0xFF1E293B), shape = RoundedCornerShape(12.dp))
+                                    .padding(vertical = 24.dp, horizontal = 16.dp),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Text(
@@ -304,7 +307,8 @@ fun GitHubDiagnosticPanel(
                             LazyColumn(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .height(300.dp),
+                                    .heightIn(max = 340.dp)
+                                    .wrapContentHeight(),
                                 verticalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 items(filteredLogs, key = { it.id }) { log ->
@@ -542,7 +546,8 @@ fun GitHubDiagnosticPanel(
                         LazyColumn(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(180.dp),
+                                .heightIn(max = 280.dp)
+                                .wrapContentHeight(),
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             items(workflowRuns) { run ->

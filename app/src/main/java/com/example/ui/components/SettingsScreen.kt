@@ -238,7 +238,6 @@ fun SettingsScreen(
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
-            .statusBarsPadding()
             .background(MaterialTheme.colorScheme.background),
         contentPadding = PaddingValues(
             start = 16.dp,

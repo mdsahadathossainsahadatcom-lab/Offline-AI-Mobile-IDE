@@ -466,8 +466,7 @@ fun ModelManagerScreen(
 
     Scaffold(
         modifier = modifier
-            .fillMaxSize()
-            .navigationBarsPadding(),
+            .fillMaxSize(),
         containerColor = MaterialTheme.colorScheme.background,
         floatingActionButton = {
             ExtendedFloatingActionButton(
@@ -498,7 +497,6 @@ fun ModelManagerScreen(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .statusBarsPadding()
                 ) {
                     Spacer(modifier = Modifier.height(16.dp))
                     Card(
