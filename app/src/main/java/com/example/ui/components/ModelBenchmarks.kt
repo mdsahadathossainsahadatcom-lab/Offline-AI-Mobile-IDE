@@ -62,8 +62,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.db.ModelProfileEntity
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 data class BenchmarkDataPoint(
     val promptTokens: Int,
@@ -115,23 +117,26 @@ fun ModelBenchmarksCard(
         if (isRunningBenchmark) return
         isRunningBenchmark = true
         selectedPointIndex = null
-        coroutineScope.launch {
+        coroutineScope.launch(Dispatchers.Default) {
             for (step in 0..100) {
-                benchmarkProgress = step / 100f
+                withContext(Dispatchers.Main) {
+                    benchmarkProgress = step / 100f
+                }
                 delay(25)
             }
             // Generate benchmark variations based on quantization
             val speedFactor = if (quantType.contains("Q8") || quantType.contains("F16")) 0.75f else 1.15f
             val latencyFactor = if (quantType.contains("Q8") || quantType.contains("F16")) 1.30f else 0.90f
 
-            benchmarkPoints[0] = BenchmarkDataPoint(128, "128t", 26.2f * speedFactor, 38f * latencyFactor, 195f)
-            benchmarkPoints[1] = BenchmarkDataPoint(256, "256t", 24.8f * speedFactor, 52f * latencyFactor, 178f)
-            benchmarkPoints[2] = BenchmarkDataPoint(512, "512t", 22.4f * speedFactor, 78f * latencyFactor, 155f)
-            benchmarkPoints[3] = BenchmarkDataPoint(1024, "1K", 19.5f * speedFactor, 122f * latencyFactor, 128f)
-            benchmarkPoints[4] = BenchmarkDataPoint(2048, "2K", 16.3f * speedFactor, 195f * latencyFactor, 98f)
-            benchmarkPoints[5] = BenchmarkDataPoint(4096, "4K", 12.8f * speedFactor, 345f * latencyFactor, 74f)
-
-            isRunningBenchmark = false
+            withContext(Dispatchers.Main) {
+                benchmarkPoints[0] = BenchmarkDataPoint(128, "128t", 26.2f * speedFactor, 38f * latencyFactor, 195f)
+                benchmarkPoints[1] = BenchmarkDataPoint(256, "256t", 24.8f * speedFactor, 52f * latencyFactor, 178f)
+                benchmarkPoints[2] = BenchmarkDataPoint(512, "512t", 22.4f * speedFactor, 78f * latencyFactor, 155f)
+                benchmarkPoints[3] = BenchmarkDataPoint(1024, "1K", 19.5f * speedFactor, 122f * latencyFactor, 128f)
+                benchmarkPoints[4] = BenchmarkDataPoint(2048, "2K", 16.3f * speedFactor, 195f * latencyFactor, 98f)
+                benchmarkPoints[5] = BenchmarkDataPoint(4096, "4K", 12.8f * speedFactor, 345f * latencyFactor, 74f)
+                isRunningBenchmark = false
+            }
         }
     }
 

@@ -56,7 +56,7 @@ fun DiagnosticPanel(
     isExpandedDefault: Boolean = true
 ) {
     var panelMode by remember { mutableStateOf(0) } // 0 = Hardware & NDK, 1 = GitHub API Diagnostics
-    var showChartDashboard by remember { mutableStateOf(false) }
+    var showChartDashboard by remember(isGenerating) { mutableStateOf(isGenerating) }
     val totalRamGb = "%.1f GB".format(diagnosticState.totalRamMb / 1024.0)
     val availRamGb = "%.1f GB".format(diagnosticState.availableRamMb / 1024.0)
     val usedRamGb = "%.1f GB".format(diagnosticState.usedRamMb / 1024.0)
@@ -73,13 +73,13 @@ fun DiagnosticPanel(
     Card(
         modifier = modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
-            containerColor = Color(0xFF0F172A)
+            containerColor = Color(0xFF0F172A).copy(alpha = 0.85f)
         ),
         border = androidx.compose.foundation.BorderStroke(
-            1.dp,
-            if (isGenerating) Color(0xFF38BDF8) else MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)
+            0.8.dp,
+            if (isGenerating) Color(0xFF38BDF8) else Color.White.copy(alpha = 0.15f)
         ),
-        shape = RoundedCornerShape(16.dp)
+        shape = RoundedCornerShape(18.dp)
     ) {
         Column(modifier = Modifier.padding(14.dp)) {
             // Mode Switcher Header Bar

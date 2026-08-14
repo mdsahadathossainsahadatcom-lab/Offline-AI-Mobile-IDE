@@ -13,11 +13,16 @@ import com.example.data.db.ModelProfileEntity
 import com.example.data.db.ProjectEntity
 import com.example.data.repository.WorkspaceRepository
 import com.example.engine.gguf.GgufHeaderParser
+import com.example.engine.gguf.GgufQuantizerEngine
+import com.example.engine.gguf.GgufQuantType
+import com.example.engine.gguf.QuantizationOptions
+import com.example.engine.gguf.QuantizationProgress
 import com.example.engine.inference.AiProviderMode
 import com.example.engine.inference.AiProviderSettings
 import com.example.engine.inference.CloudInferenceEngine
 import com.example.engine.inference.CloudProvider
 import com.example.engine.inference.GenerationProgress
+import com.example.engine.inference.LlamaBridge
 import com.example.engine.inference.LocalInferenceEngine
 import com.example.ui.theme.IdeTheme
 import com.example.ui.theme.ThemeMode
@@ -28,6 +33,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -41,6 +49,14 @@ import kotlinx.coroutines.withContext
 import android.app.DownloadManager
 import com.example.ui.components.PresetModelItem
 import java.io.File
+
+@androidx.compose.runtime.Immutable
+data class ToastAlertEvent(
+    val message: String,
+    val duration: Int = android.widget.Toast.LENGTH_LONG,
+    val isWarning: Boolean = true,
+    val timestamp: Long = System.currentTimeMillis()
+)
 
 enum class TerminalSource { ALL, GGUF_ENGINE, WEB_PREVIEW, SYSTEM }
 enum class TerminalStream { STDOUT, STDERR, INFO, WARN, ERROR }
@@ -203,6 +219,22 @@ class IdeViewModel(application: Application) : AndroidViewModel(application) {
     private val _memoryCheckResult = MutableStateFlow<MemoryCheckResult?>(null)
     val memoryCheckResult: StateFlow<MemoryCheckResult?> = _memoryCheckResult.asStateFlow()
 
+    private val _toastEvents = MutableSharedFlow<ToastAlertEvent>(extraBufferCapacity = 10)
+    val toastEvents: SharedFlow<ToastAlertEvent> = _toastEvents.asSharedFlow()
+
+    private var lastHighRamToastTime: Long = 0L
+    private var lastHighRamModelId: Long? = null
+
+    fun emitToastAlert(
+        message: String,
+        duration: Int = android.widget.Toast.LENGTH_LONG,
+        isWarning: Boolean = true
+    ) {
+        viewModelScope.launch(Dispatchers.Main) {
+            _toastEvents.emit(ToastAlertEvent(message = message, duration = duration, isWarning = isWarning))
+        }
+    }
+
     private val _lastAutoSaveTime = MutableStateFlow<String?>(null)
     val lastAutoSaveTime: StateFlow<String?> = _lastAutoSaveTime.asStateFlow()
 
@@ -217,6 +249,11 @@ class IdeViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _importProgress = MutableStateFlow<GgufImportProgress?>(null)
     val importProgress: StateFlow<GgufImportProgress?> = _importProgress.asStateFlow()
+
+    private val _quantizationProgress = MutableStateFlow<QuantizationProgress?>(null)
+    val quantizationProgress: StateFlow<QuantizationProgress?> = _quantizationProgress.asStateFlow()
+
+    private var quantizationJob: Job? = null
 
     private val cloudInferenceEngine = CloudInferenceEngine()
 
@@ -437,7 +474,7 @@ class IdeViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun publishProjectToGitHub(patToken: String, repoName: String, isPrivate: Boolean) {
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             val proj = _activeProject.value ?: return@launch
             val filesMap = _projectFiles.value.associate { it.path to it.content }
             addConsoleLog("[GitHub Publish] Initiating GitHub API publish for '${proj.title}'...")
@@ -717,16 +754,39 @@ class IdeViewModel(application: Application) : AndroidViewModel(application) {
         addConsoleLog("[Inference Engine] Context Window updated to $clamped tokens")
     }
 
-    fun checkDeviceMemoryStatus(modelSizeBytes: Long = selectedModel.value?.sizeBytes ?: 1_680_000_000L): MemoryCheckResult {
+    fun checkDeviceMemoryStatus(
+        modelSizeBytes: Long = selectedModel.value?.sizeBytes ?: 1_680_000_000L,
+        modelName: String = selectedModel.value?.name ?: "Active GGUF Model",
+        forceAlertToast: Boolean = false
+    ): MemoryCheckResult {
         val result = MemoryCheckUtil.verifyAvailableRam(
             context = getApplication(),
             modelSizeBytes = modelSizeBytes,
-            requestedContextWindow = inferenceEngine.contextWindow
+            requestedContextWindow = inferenceEngine.contextWindow,
+            modelName = modelName
         )
         _memoryCheckResult.value = result
         if (result.warningMessage != null) {
             addConsoleLog("[RAM Guard Warning] ${result.warningMessage}")
         }
+
+        // High RAM Toast Notification Dispatcher
+        val now = System.currentTimeMillis()
+        val isModelChanged = lastHighRamModelId != selectedModel.value?.id
+        val isThrottled = (now - lastHighRamToastTime) < 15_000L
+
+        if ((result.isHighRamUsage || result.isCriticalRamUsage) && (forceAlertToast || isModelChanged || !isThrottled)) {
+            lastHighRamToastTime = now
+            lastHighRamModelId = selectedModel.value?.id
+
+            val alertMessage = if (result.isCriticalRamUsage) {
+                "🚨 Critical RAM Alert: '$modelName' reaches high memory levels (${result.requiredRamMb}MB required, only ${result.availableRamMb}MB available, system limit: ${result.systemThresholdMb}MB). Context scaled to ${result.recommendedContextWindow} tokens."
+            } else {
+                "⚠️ High RAM Alert: '$modelName' RAM usage is high (${result.requiredRamMb}MB / ${result.ramPressurePercent}% of available system threshold). Free RAM: ${result.availableRamMb}MB."
+            }
+            emitToastAlert(alertMessage, android.widget.Toast.LENGTH_LONG, isWarning = true)
+        }
+
         return result
     }
 
@@ -748,6 +808,21 @@ class IdeViewModel(application: Application) : AndroidViewModel(application) {
                 delay(15_000L) // 15-second interval
                 if (_isAutoSaveEnabled.value) {
                     persistActiveFileToRoom()
+                }
+            }
+        }
+
+        // Continuous High RAM Watchdog: Monitors active model memory footprint vs system threshold
+        viewModelScope.launch(Dispatchers.IO) {
+            while (isActive) {
+                delay(12_000L) // 12-second watchdog polling
+                val activeModel = selectedModel.value
+                if (activeModel != null) {
+                    checkDeviceMemoryStatus(
+                        modelSizeBytes = activeModel.sizeBytes,
+                        modelName = activeModel.name,
+                        forceAlertToast = false
+                    )
                 }
             }
         }
@@ -910,7 +985,7 @@ class IdeViewModel(application: Application) : AndroidViewModel(application) {
     fun setTheme(theme: IdeTheme) {
         _activeTheme.value = theme
         val proj = _activeProject.value ?: return
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             repository.createProject(proj.title, proj.description, theme.name)
         }
     }
@@ -1111,7 +1186,7 @@ class IdeViewModel(application: Application) : AndroidViewModel(application) {
         val proj = _activeProject.value ?: return
         if (fileName.isBlank()) return
         val cleanName = fileName.trim()
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             val contentToSave = initialContent ?: when {
                 cleanName.endsWith(".html") || cleanName.endsWith(".htm") -> "<!-- Created in Local AI IDE -->\n<div class=\"container\">\n  <h2>$cleanName</h2>\n</div>"
                 cleanName.endsWith(".css") -> "/* Styling for $cleanName */\n.container {\n  padding: 16px;\n}"
@@ -1168,7 +1243,7 @@ class IdeViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun importProjectFromZip(inputStream: java.io.InputStream, zipName: String, onResult: (String) -> Unit) {
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             try {
                 val newProjId = repository.importProjectFromZip(inputStream, zipName)
                 val newProj = repository.getProjectById(newProjId)
@@ -1176,12 +1251,16 @@ class IdeViewModel(application: Application) : AndroidViewModel(application) {
                     selectProject(newProj)
                     val msg = "Successfully imported project '${newProj.title}' from $zipName"
                     addConsoleLog("[Zip Import] $msg")
-                    onResult(msg)
+                    withContext(Dispatchers.Main) {
+                        onResult(msg)
+                    }
                 }
             } catch (e: Exception) {
                 val err = "Failed to import zip: ${e.localizedMessage}"
                 addConsoleLog("[Zip Import Error] $err")
-                onResult(err)
+                withContext(Dispatchers.Main) {
+                    onResult(err)
+                }
             }
         }
     }
@@ -1334,12 +1413,17 @@ class IdeViewModel(application: Application) : AndroidViewModel(application) {
             selectSession(sessionId)
             repository.saveChatMessage(sessionId, "User", prompt)
 
-            // Verify available memory on I/O dispatcher
-            val memResult = checkDeviceMemoryStatus()
-            if (memResult.availableRamMb < 500) {
+            // Verify available memory on I/O dispatcher with toast notification alert
+            val activeModelName = selectedModel.value?.name ?: "Active GGUF Model"
+            val memResult = checkDeviceMemoryStatus(
+                modelSizeBytes = selectedModel.value?.sizeBytes ?: 1_680_000_000L,
+                modelName = activeModelName,
+                forceAlertToast = true
+            )
+            if (memResult.availableRamMb < 500 || memResult.isCriticalRamUsage) {
                 val truncatedContext = 1024.coerceAtMost(_contextWindow.value)
                 _contextWindow.value = truncatedContext
-                addConsoleLog("[OOM Guard] Low Available RAM (${memResult.availableRamMb}MB < 500MB). Dynamically truncated context window to $truncatedContext tokens to preserve OS stability.")
+                addConsoleLog("[OOM Guard] Critical Available RAM (${memResult.availableRamMb}MB). Dynamically scaled context window to $truncatedContext tokens to preserve OS stability.")
             }
 
             val providerSettings = _aiProviderSettings.value
@@ -1576,11 +1660,68 @@ class IdeViewModel(application: Application) : AndroidViewModel(application) {
         _importProgress.value = null
     }
 
+    fun startModelQuantization(
+        context: Context,
+        sourceModel: ModelProfileEntity,
+        options: QuantizationOptions
+    ) {
+        quantizationJob?.cancel()
+        quantizationJob = viewModelScope.launch(Dispatchers.IO) {
+            addConsoleLog("[GGUF Quantizer] Initiated on-device quantization for '${sourceModel.name}' -> ${options.targetQuant.code}")
+            GgufQuantizerEngine.quantizeModel(context, sourceModel, options).collect { progress ->
+                _quantizationProgress.value = progress
+                if (progress.isCompleted && progress.convertedModel != null) {
+                    val savedId = repository.saveModelProfile(progress.convertedModel)
+                    addConsoleLog("[GGUF Quantizer] Successfully saved converted model '${progress.convertedModel.name}' into local models storage (ID: $savedId).")
+
+                    if (options.autoActivateConvertedModel) {
+                        selectModelProfile(savedId)
+                    }
+
+                    emitToastAlert(
+                        "⚡ Successfully optimized & converted '${sourceModel.name}' to ${options.targetQuant.code}!",
+                        android.widget.Toast.LENGTH_SHORT,
+                        isWarning = false
+                    )
+                } else if (progress.errorMessage != null) {
+                    addConsoleLog("[GGUF Quantizer Error] ${progress.errorMessage}")
+                    emitToastAlert(
+                        "❌ Quantization failed: ${progress.errorMessage}",
+                        android.widget.Toast.LENGTH_LONG,
+                        isWarning = true
+                    )
+                }
+            }
+        }
+    }
+
+    fun cancelModelQuantization() {
+        GgufQuantizerEngine.abortCurrentQuantization()
+        quantizationJob?.cancel()
+        _quantizationProgress.value = _quantizationProgress.value?.copy(
+            isProcessing = false,
+            isAborted = true,
+            statusMessage = "Quantization cancelled by user."
+        )
+        addConsoleLog("[GGUF Quantizer] User aborted quantization process.")
+        emitToastAlert("Quantization cancelled.", android.widget.Toast.LENGTH_SHORT, isWarning = true)
+    }
+
+    fun dismissQuantizationProgress() {
+        _quantizationProgress.value = null
+    }
+
     fun offloadModel() {
         viewModelScope.launch(Dispatchers.IO) {
-            inferenceEngine.releaseNativeResources()
-            repository.clearModelSelection()
-            addConsoleLog("[Model Manager] Offloaded active model from RAM.")
+            val previousModelName = selectedModel.value?.name ?: "Active model"
+            try {
+                inferenceEngine.releaseNativeResources()
+                repository.clearModelSelection()
+            } finally {
+                System.gc()
+                addConsoleLog("[Model Manager] Offloaded active model from RAM.")
+                emitToastAlert("✅ Offloaded '$previousModelName' from RAM. Native memory cleared.", android.widget.Toast.LENGTH_SHORT, isWarning = false)
+            }
         }
     }
 
@@ -1817,7 +1958,11 @@ class IdeViewModel(application: Application) : AndroidViewModel(application) {
     fun selectModelProfile(modelId: Long) {
         viewModelScope.launch(Dispatchers.IO) {
             // Memory Unloading: Explicitly release native pointers before swapping model
-            inferenceEngine.releaseNativeResources()
+            try {
+                inferenceEngine.releaseNativeResources()
+            } finally {
+                System.gc()
+            }
             repository.selectModel(modelId)
 
             val selected = allModels.value.find { it.id == modelId }
@@ -1827,14 +1972,29 @@ class IdeViewModel(application: Application) : AndroidViewModel(application) {
                 inferenceEngine.contextWindow = selected.contextWindow
                 _contextWindow.value = selected.contextWindow
                 addConsoleLog("[Model Manager] Active inference model set to '${selected.name}' (${selected.quantType}, ${selected.parameters}).")
+                
+                val mem = checkDeviceMemoryStatus(
+                    modelSizeBytes = selected.sizeBytes,
+                    modelName = selected.name,
+                    forceAlertToast = true
+                )
+                if (!mem.isHighRamUsage && !mem.isCriticalRamUsage) {
+                    emitToastAlert("⚡ Loaded '${selected.name}' into RAM (${mem.requiredRamMb} MB, ${mem.availableRamMb} MB free)", android.widget.Toast.LENGTH_SHORT, isWarning = false)
+                }
+            } else {
+                checkDeviceMemoryStatus(forceAlertToast = true)
             }
-            checkDeviceMemoryStatus(selected?.sizeBytes ?: 1_680_000_000L)
         }
     }
 
     override fun onCleared() {
         super.onCleared()
         // Release model context & pointers when ViewModel lifecycle ends
-        inferenceEngine.releaseNativeResources()
+        try {
+            inferenceEngine.releaseNativeResources()
+            LlamaBridge.freeAllHandles()
+        } finally {
+            System.gc()
+        }
     }
 }

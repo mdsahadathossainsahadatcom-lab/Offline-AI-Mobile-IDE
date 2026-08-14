@@ -41,6 +41,8 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Warning
+import com.example.engine.gguf.QuantizationOptions
+import com.example.engine.gguf.QuantizationProgress
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -83,12 +85,15 @@ fun GgufModelManagerScreen(
     models: List<ModelProfileEntity>,
     selectedModel: ModelProfileEntity?,
     importProgress: GgufImportProgress? = null,
+    quantizationProgress: QuantizationProgress? = null,
     memoryCheckResult: MemoryCheckResult? = null,
     onModelSelected: (Long) -> Unit,
     onImportGgufFile: (Uri) -> Unit,
     onDeleteModel: (ModelProfileEntity) -> Unit,
     onRenameModel: (Long, String) -> Unit,
     onDismissImportProgress: () -> Unit,
+    onStartQuantization: (ModelProfileEntity, QuantizationOptions) -> Unit = { _, _ -> },
+    onCancelQuantization: () -> Unit = {},
     onCloseModal: (() -> Unit)? = null
 ) {
     val context = LocalContext.current
@@ -96,6 +101,8 @@ fun GgufModelManagerScreen(
     // Dialog state management
     var modelToDelete by remember { mutableStateOf<ModelProfileEntity?>(null) }
     var modelToRename by remember { mutableStateOf<ModelProfileEntity?>(null) }
+    var modelToQuantize by remember { mutableStateOf<ModelProfileEntity?>(null) }
+    var showQuantizerDialog by remember { mutableStateOf(false) }
     var renameInput by remember { mutableStateOf("") }
     var modelForDetails by remember { mutableStateOf<ModelProfileEntity?>(null) }
     var showArchGuide by remember { mutableStateOf(false) }
@@ -678,6 +685,21 @@ fun GgufModelManagerScreen(
 
                                 Row {
                                     IconButton(
+                                        onClick = {
+                                            modelToQuantize = model
+                                            showQuantizerDialog = true
+                                        },
+                                        modifier = Modifier.testTag("quantize_model_${model.id}")
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Tune,
+                                            contentDescription = "Quantize & Optimize",
+                                            tint = Color(0xFF818CF8),
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+
+                                    IconButton(
                                         onClick = { modelForDetails = model },
                                         modifier = Modifier.testTag("inspect_model_${model.id}")
                                     ) {
@@ -850,6 +872,23 @@ fun GgufModelManagerScreen(
                 TextButton(onClick = { modelToDelete = null }) {
                     Text("Cancel")
                 }
+            }
+        )
+    }
+
+    // In-App GGUF Hardware Quantization & Compression Dialog
+    if (showQuantizerDialog || modelToQuantize != null || quantizationProgress?.isProcessing == true) {
+        GgufQuantizerDialog(
+            allModels = models,
+            initialSelectedModel = modelToQuantize,
+            quantizationProgress = quantizationProgress,
+            onStartQuantization = { model, options ->
+                onStartQuantization(model, options)
+            },
+            onCancelQuantization = onCancelQuantization,
+            onDismiss = {
+                showQuantizerDialog = false
+                modelToQuantize = null
             }
         )
     }

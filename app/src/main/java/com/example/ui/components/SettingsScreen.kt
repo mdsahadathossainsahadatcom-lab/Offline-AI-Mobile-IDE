@@ -3,6 +3,7 @@ package com.example.ui.components
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -15,6 +16,7 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.systemBars
@@ -71,7 +73,6 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.TextButton
 import androidx.compose.foundation.layout.size
 import androidx.compose.ui.platform.testTag
-import androidx.compose.material3.Surface
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.example.ui.viewmodel.GgufImportProgress
@@ -95,14 +96,20 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.db.ModelProfileEntity
+import com.example.engine.gguf.GgufQuantType
+import com.example.engine.gguf.GgufQuantizerEngine
+import com.example.engine.gguf.QuantizationOptions
+import com.example.engine.gguf.QuantizationProgress
 import com.example.engine.inference.GenerationProgress
 import com.example.ui.theme.IdeTheme
 import com.example.ui.theme.ThemeMode
 import com.example.util.MemoryCheckResult
 import com.example.util.MemoryCheckUtil
 import kotlinx.coroutines.delay
+import java.util.Locale
 import kotlin.random.Random
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun SettingsScreen(
     currentTheme: IdeTheme,
@@ -111,6 +118,7 @@ fun SettingsScreen(
     models: List<ModelProfileEntity>,
     selectedModel: ModelProfileEntity?,
     importProgress: GgufImportProgress? = null,
+    quantizationProgress: QuantizationProgress? = null,
     isGenerating: Boolean = false,
     generationProgress: GenerationProgress? = null,
     memoryCheckResult: MemoryCheckResult? = null,
@@ -133,7 +141,9 @@ fun SettingsScreen(
     onToggleAutoSave: (Boolean) -> Unit = {},
     onProviderSettingsChanged: (AiProviderSettings) -> Unit = {},
     onTestConnection: () -> Unit = {},
-    onClearHistory: () -> Unit = {}
+    onClearHistory: () -> Unit = {},
+    onStartQuantization: (ModelProfileEntity, QuantizationOptions) -> Unit = { _, _ -> },
+    onCancelQuantization: () -> Unit = {}
 ) {
 
     // Dialog & Management States for Local GGUF Files
@@ -142,6 +152,25 @@ fun SettingsScreen(
     var renameInput by remember { mutableStateOf("") }
     var modelForDetails by remember { mutableStateOf<ModelProfileEntity?>(null) }
     var showModelManagerModal by remember { mutableStateOf(false) }
+    var showQuantizerModal by remember { mutableStateOf(false) }
+    var quantizerSelectedModel by remember { mutableStateOf<ModelProfileEntity?>(null) }
+
+    if (showQuantizerModal) {
+        GgufQuantizerDialog(
+            allModels = models,
+            initialSelectedModel = quantizerSelectedModel ?: selectedModel,
+            quantizationProgress = quantizationProgress,
+            onStartQuantization = { model, options ->
+                onStartQuantization(model, options)
+            },
+            onCancelQuantization = {
+                onCancelQuantization()
+            },
+            onDismiss = {
+                showQuantizerModal = false
+            }
+        )
+    }
 
     if (showModelManagerModal) {
         Dialog(
@@ -156,12 +185,15 @@ fun SettingsScreen(
                     models = models,
                     selectedModel = selectedModel,
                     importProgress = importProgress,
+                    quantizationProgress = quantizationProgress,
                     memoryCheckResult = memoryCheckResult,
                     onModelSelected = onModelSelected,
                     onImportGgufFile = onImportGgufFile,
                     onDeleteModel = onDeleteModel,
                     onRenameModel = onRenameModel,
                     onDismissImportProgress = onDismissImportProgress,
+                    onStartQuantization = onStartQuantization,
+                    onCancelQuantization = onCancelQuantization,
                     onCloseModal = { showModelManagerModal = false }
                 )
             }
@@ -199,16 +231,20 @@ fun SettingsScreen(
     }
 
     val safeInsets = WindowInsets.systemBars.asPaddingValues()
+    val glassCardColor = Color(0xFF1E293B).copy(alpha = 0.65f)
+    val glassBorder = BorderStroke(0.8.dp, Color.White.copy(alpha = 0.12f))
+    val glassCardShape = RoundedCornerShape(18.dp)
 
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
+            .statusBarsPadding()
             .background(MaterialTheme.colorScheme.background),
         contentPadding = PaddingValues(
             start = 16.dp,
             end = 16.dp,
-            top = 16.dp + safeInsets.calculateTopPadding(),
-            bottom = 16.dp + safeInsets.calculateBottomPadding()
+            top = 16.dp,
+            bottom = 96.dp
         ),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
@@ -216,8 +252,9 @@ fun SettingsScreen(
         item {
             Card(
                 modifier = Modifier.fillMaxWidth().testTag("theme_customization_card"),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                shape = RoundedCornerShape(16.dp)
+                colors = CardDefaults.cardColors(containerColor = glassCardColor),
+                border = glassBorder,
+                shape = glassCardShape
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -381,8 +418,9 @@ fun SettingsScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .testTag("ai_provider_configuration_card"),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                shape = RoundedCornerShape(16.dp)
+                colors = CardDefaults.cardColors(containerColor = glassCardColor),
+                border = glassBorder,
+                shape = glassCardShape
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -642,8 +680,9 @@ fun SettingsScreen(
 
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                shape = RoundedCornerShape(16.dp)
+                colors = CardDefaults.cardColors(containerColor = glassCardColor),
+                border = glassBorder,
+                shape = glassCardShape
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Row(
@@ -979,6 +1018,20 @@ fun SettingsScreen(
                                                 Spacer(modifier = Modifier.width(4.dp))
                                                 Text("Rename", fontSize = 10.sp)
                                             }
+
+                                            Button(
+                                                onClick = {
+                                                    quantizerSelectedModel = model
+                                                    showQuantizerModal = true
+                                                },
+                                                shape = RoundedCornerShape(8.dp),
+                                                modifier = Modifier.height(30.dp),
+                                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+                                            ) {
+                                                Icon(imageVector = Icons.Default.Speed, contentDescription = "Quantize", modifier = Modifier.size(14.dp))
+                                                Spacer(modifier = Modifier.width(4.dp))
+                                                Text("Quantize", fontSize = 10.sp)
+                                            }
                                         }
 
                                         IconButton(
@@ -1000,12 +1053,457 @@ fun SettingsScreen(
             }
         }
 
+        // 2.2 Dedicated GGUF Model Quantization Utility (llama.cpp Engine)
+        item {
+            var selectedSourceModelForQuant by remember(models, selectedModel) {
+                mutableStateOf(selectedModel ?: models.firstOrNull())
+            }
+            var selectedQuantType by remember {
+                mutableStateOf(GgufQuantType.Q4_K_M)
+            }
+
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("gguf_model_quantizer_card"),
+                colors = CardDefaults.cardColors(containerColor = glassCardColor),
+                border = glassBorder,
+                shape = glassCardShape
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Surface(
+                            color = Color(0xFF6366F1).copy(alpha = 0.2f),
+                            shape = CircleShape,
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = Icons.Default.Speed,
+                                    contentDescription = "GGUF Quantization",
+                                    tint = Color(0xFF818CF8),
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "GGUF MODEL QUANTIZATION UTILITY",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                text = "Convert weights to Q4_K_M via llama.cpp scripts for 40-55% RAM reduction",
+                                fontSize = 10.sp,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    if (models.isEmpty()) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(MaterialTheme.colorScheme.surfaceVariant, shape = RoundedCornerShape(12.dp))
+                                .padding(16.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text(
+                                    text = "No GGUF models available for quantization.",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Text(
+                                    text = "Import a .gguf model file using the storage button above to convert it.",
+                                    fontSize = 10.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                )
+                            }
+                        }
+                    } else {
+                        // 1. Source GGUF Model Selector
+                        Text(
+                            text = "1. SELECT SOURCE GGUF MODEL FILE",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+
+                        Spacer(modifier = Modifier.height(6.dp))
+
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            models.forEach { model ->
+                                val isChosen = selectedSourceModelForQuant?.id == model.id
+                                Card(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .clickable { selectedSourceModelForQuant = model },
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = if (isChosen) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f) else MaterialTheme.colorScheme.surfaceVariant
+                                    ),
+                                    shape = RoundedCornerShape(10.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = model.name,
+                                                fontSize = 12.sp,
+                                                fontWeight = if (isChosen) FontWeight.Bold else FontWeight.Normal,
+                                                color = MaterialTheme.colorScheme.onSurface,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                            Text(
+                                                text = "${formatSizeBytes(model.sizeBytes)} • Current Quant: ${model.quantType}",
+                                                fontSize = 10.sp,
+                                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                                            )
+                                        }
+
+                                        RadioButton(
+                                            selected = isChosen,
+                                            onClick = { selectedSourceModelForQuant = model }
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(14.dp))
+
+                        // 2. Target Quantization Format Selection
+                        Text(
+                            text = "2. SELECT TARGET QUANTIZATION FORMAT",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        val quantOptions = listOf(
+                            GgufQuantType.Q4_K_M,
+                            GgufQuantType.Q2_K,
+                            GgufQuantType.Q3_K_M,
+                            GgufQuantType.Q4_K_S,
+                            GgufQuantType.Q5_K_M,
+                            GgufQuantType.Q8_0
+                        )
+
+                        FlowRow(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            quantOptions.forEach { quant ->
+                                val isSelected = quant == selectedQuantType
+                                Surface(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .clickable { selectedQuantType = quant },
+                                    color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                                    shape = RoundedCornerShape(8.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = quant.code,
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
+                                        )
+                                        if (quant.isRecommended) {
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Surface(
+                                                color = if (isSelected) Color(0xFFFACC15) else MaterialTheme.colorScheme.primary,
+                                                shape = RoundedCornerShape(4.dp)
+                                            ) {
+                                                Text(
+                                                    text = "RECOMMENDED",
+                                                    fontSize = 8.sp,
+                                                    fontWeight = FontWeight.Black,
+                                                    color = if (isSelected) Color.Black else MaterialTheme.colorScheme.onPrimary,
+                                                    modifier = Modifier.padding(horizontal = 3.dp, vertical = 1.dp)
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // 3. Hardware & Memory Reduction Preview
+                        selectedSourceModelForQuant?.let { sourceModel ->
+                            val sourceSize = sourceModel.sizeBytes
+                            val estimatedTargetSize = (sourceSize * selectedQuantType.compressionRatio).toLong()
+                            val savingsPercent = ((1f - selectedQuantType.compressionRatio) * 100).toInt().coerceIn(0, 80)
+
+                            Spacer(modifier = Modifier.height(12.dp))
+
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(
+                                        color = if (selectedQuantType == GgufQuantType.Q4_K_M) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f) else MaterialTheme.colorScheme.surfaceVariant,
+                                        shape = RoundedCornerShape(12.dp)
+                                    )
+                                    .padding(12.dp)
+                            ) {
+                                Column {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = selectedQuantType.displayName,
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
+                                        Surface(
+                                            color = Color(0xFF16A34A).copy(alpha = 0.2f),
+                                            shape = RoundedCornerShape(6.dp)
+                                        ) {
+                                            Text(
+                                                text = "SAVINGS: ~$savingsPercent% RAM",
+                                                fontSize = 10.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = Color(0xFF22C55E),
+                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                            )
+                                        }
+                                    }
+
+                                    Spacer(modifier = Modifier.height(6.dp))
+
+                                    Text(
+                                        text = selectedQuantType.description,
+                                        fontSize = 10.sp,
+                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f),
+                                        lineHeight = 14.sp
+                                    )
+
+                                    Spacer(modifier = Modifier.height(8.dp))
+
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Text(
+                                            text = "Source Size: ${formatSizeBytes(sourceSize)}",
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Medium,
+                                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                                        )
+                                        Text(
+                                            text = "➔ Estimated: ${formatSizeBytes(estimatedTargetSize)}",
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        // 4. Live Quantization In-Progress / Status Banner
+                        if (quantizationProgress != null && (quantizationProgress.isProcessing || quantizationProgress.isCompleted || quantizationProgress.errorMessage != null)) {
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = when {
+                                        quantizationProgress.errorMessage != null -> MaterialTheme.colorScheme.errorContainer
+                                        quantizationProgress.isCompleted -> Color(0xFF064E3B)
+                                        else -> MaterialTheme.colorScheme.primaryContainer
+                                    }
+                                ),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Column(modifier = Modifier.padding(12.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = when {
+                                                quantizationProgress.errorMessage != null -> "⚠️ Quantization Failed"
+                                                quantizationProgress.isCompleted -> "✓ Quantization Complete!"
+                                                else -> "⚡ Quantizing to ${quantizationProgress.targetQuant}..."
+                                            },
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = when {
+                                                quantizationProgress.errorMessage != null -> MaterialTheme.colorScheme.onErrorContainer
+                                                quantizationProgress.isCompleted -> Color(0xFF6EE7B7)
+                                                else -> MaterialTheme.colorScheme.onPrimaryContainer
+                                            }
+                                        )
+
+                                        if (quantizationProgress.isProcessing) {
+                                            OutlinedButton(
+                                                onClick = onCancelQuantization,
+                                                shape = RoundedCornerShape(8.dp),
+                                                modifier = Modifier.height(26.dp),
+                                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+                                            ) {
+                                                Text("Cancel", fontSize = 10.sp, color = MaterialTheme.colorScheme.error)
+                                            }
+                                        }
+                                    }
+
+                                    if (quantizationProgress.isProcessing) {
+                                        Spacer(modifier = Modifier.height(6.dp))
+                                        Text(
+                                            text = "Tensors: ${quantizationProgress.currentTensorIndex}/${quantizationProgress.totalTensors} (${quantizationProgress.currentTensorName})",
+                                            fontSize = 10.sp,
+                                            fontFamily = FontFamily.Monospace,
+                                            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.85f),
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        Spacer(modifier = Modifier.height(6.dp))
+                                        LinearProgressIndicator(
+                                            progress = { quantizationProgress.progressFraction },
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .height(6.dp)
+                                                .clip(RoundedCornerShape(3.dp)),
+                                            color = MaterialTheme.colorScheme.primary,
+                                            trackColor = MaterialTheme.colorScheme.surfaceVariant
+                                        )
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween
+                                        ) {
+                                            Text(
+                                                text = "${(quantizationProgress.progressFraction * 100).toInt()}%",
+                                                fontSize = 10.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                                            )
+                                            Text(
+                                                text = "${String.format(Locale.US, "%.1f", quantizationProgress.speedMBPerSec)} MB/s",
+                                                fontSize = 10.sp,
+                                                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
+                                            )
+                                        }
+                                    } else if (quantizationProgress.isCompleted) {
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Text(
+                                            text = "Converted model saved and registered in local profile library.",
+                                            fontSize = 10.sp,
+                                            color = Color(0xFFD1FAE5)
+                                        )
+                                    } else if (quantizationProgress.errorMessage != null) {
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Text(
+                                            text = quantizationProgress.errorMessage,
+                                            fontSize = 10.sp,
+                                            color = MaterialTheme.colorScheme.onErrorContainer
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(14.dp))
+
+                        // 5. Action Execution Buttons
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            OutlinedButton(
+                                onClick = {
+                                    quantizerSelectedModel = selectedSourceModelForQuant
+                                    showQuantizerModal = true
+                                },
+                                shape = RoundedCornerShape(10.dp),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .testTag("open_quantization_studio_button"),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp)
+                            ) {
+                                Icon(imageVector = Icons.Default.Tune, contentDescription = "Advanced Studio", modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Studio...", fontSize = 11.sp, maxLines = 1)
+                            }
+
+                            val isProcessing = quantizationProgress?.isProcessing == true
+                            Button(
+                                onClick = {
+                                    selectedSourceModelForQuant?.let { model ->
+                                        val options = QuantizationOptions(
+                                            targetQuant = selectedQuantType,
+                                            customOutputName = GgufQuantizerEngine.generateQuantizedFileName(model.name, selectedQuantType),
+                                            keepOriginal = true,
+                                            autoActivateConvertedModel = true
+                                        )
+                                        onStartQuantization(model, options)
+                                    }
+                                },
+                                enabled = !isProcessing && selectedSourceModelForQuant != null,
+                                shape = RoundedCornerShape(10.dp),
+                                modifier = Modifier
+                                    .weight(1.5f)
+                                    .testTag("start_quick_quantization_button"),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp)
+                            ) {
+                                if (isProcessing) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(16.dp),
+                                        strokeWidth = 2.dp,
+                                        color = MaterialTheme.colorScheme.onPrimary
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Converting...", fontSize = 11.sp)
+                                } else {
+                                    Icon(imageVector = Icons.Default.Speed, contentDescription = "Quantize", modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = "Convert to ${selectedQuantType.code}",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         // 2.5 Dynamic Context Length Controller
         item {
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                shape = RoundedCornerShape(16.dp)
+                colors = CardDefaults.cardColors(containerColor = glassCardColor),
+                border = glassBorder,
+                shape = glassCardShape
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Row(
@@ -1123,8 +1621,9 @@ fun SettingsScreen(
         item {
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                shape = RoundedCornerShape(16.dp)
+                colors = CardDefaults.cardColors(containerColor = glassCardColor),
+                border = glassBorder,
+                shape = glassCardShape
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1211,8 +1710,9 @@ fun SettingsScreen(
         item {
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                shape = RoundedCornerShape(16.dp)
+                colors = CardDefaults.cardColors(containerColor = glassCardColor),
+                border = glassBorder,
+                shape = glassCardShape
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Row(
@@ -1263,8 +1763,9 @@ fun SettingsScreen(
         item {
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                shape = RoundedCornerShape(16.dp)
+                colors = CardDefaults.cardColors(containerColor = glassCardColor),
+                border = glassBorder,
+                shape = glassCardShape
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Row(
@@ -1329,8 +1830,9 @@ fun SettingsScreen(
         item {
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                shape = RoundedCornerShape(16.dp)
+                colors = CardDefaults.cardColors(containerColor = glassCardColor),
+                border = glassBorder,
+                shape = glassCardShape
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Row(
@@ -1380,8 +1882,9 @@ fun SettingsScreen(
         item {
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                shape = RoundedCornerShape(16.dp)
+                colors = CardDefaults.cardColors(containerColor = glassCardColor),
+                border = glassBorder,
+                shape = glassCardShape
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1455,11 +1958,14 @@ fun SettingsScreen(
     modelToDelete?.let { model ->
         AlertDialog(
             onDismissRequest = { modelToDelete = null },
-            title = { Text("Delete GGUF Model File?", fontSize = 16.sp, fontWeight = FontWeight.Bold) },
+            containerColor = Color(0xFF0F172A).copy(alpha = 0.95f),
+            shape = RoundedCornerShape(20.dp),
+            title = { Text("Delete GGUF Model File?", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color.White) },
             text = {
                 Text(
                     text = "Are you sure you want to delete '${model.name}' (${formatSizeBytes(model.sizeBytes)}) from local device storage?\n\nThis will free up storage space, but the model file will no longer be available for offline inference.",
-                    fontSize = 12.sp
+                    fontSize = 12.sp,
+                    color = Color.White.copy(alpha = 0.85f)
                 )
             },
             confirmButton = {
@@ -1468,14 +1974,15 @@ fun SettingsScreen(
                         onDeleteModel(model)
                         modelToDelete = null
                     },
-                    colors = androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                    colors = androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                    shape = RoundedCornerShape(10.dp)
                 ) {
                     Text("Delete File", fontSize = 12.sp)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { modelToDelete = null }) {
-                    Text("Cancel", fontSize = 12.sp)
+                    Text("Cancel", fontSize = 12.sp, color = Color.White.copy(alpha = 0.7f))
                 }
             }
         )
@@ -1485,16 +1992,19 @@ fun SettingsScreen(
     modelToRename?.let { model ->
         AlertDialog(
             onDismissRequest = { modelToRename = null },
-            title = { Text("Rename Model Profile", fontSize = 16.sp, fontWeight = FontWeight.Bold) },
+            containerColor = Color(0xFF0F172A).copy(alpha = 0.95f),
+            shape = RoundedCornerShape(20.dp),
+            title = { Text("Rename Model Profile", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color.White) },
             text = {
                 Column {
-                    Text("Enter new label for model file:", fontSize = 12.sp)
+                    Text("Enter new label for model file:", fontSize = 12.sp, color = Color.White.copy(alpha = 0.85f))
                     Spacer(modifier = Modifier.height(8.dp))
                     OutlinedTextField(
                         value = renameInput,
                         onValueChange = { renameInput = it },
                         singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp)
                     )
                 }
             },
@@ -1505,14 +2015,15 @@ fun SettingsScreen(
                             onRenameModel(model.id, renameInput.trim())
                         }
                         modelToRename = null
-                    }
+                    },
+                    shape = RoundedCornerShape(10.dp)
                 ) {
                     Text("Save", fontSize = 12.sp)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { modelToRename = null }) {
-                    Text("Cancel", fontSize = 12.sp)
+                    Text("Cancel", fontSize = 12.sp, color = Color.White.copy(alpha = 0.7f))
                 }
             }
         )
@@ -1522,21 +2033,23 @@ fun SettingsScreen(
     modelForDetails?.let { model ->
         AlertDialog(
             onDismissRequest = { modelForDetails = null },
-            title = { Text(model.name, fontSize = 15.sp, fontWeight = FontWeight.Bold) },
+            containerColor = Color(0xFF0F172A).copy(alpha = 0.95f),
+            shape = RoundedCornerShape(20.dp),
+            title = { Text(model.name, fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color.White) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text("• File Format: GGUF v3 Binary", fontSize = 12.sp)
-                    Text("• Quantization Type: ${model.quantType}", fontSize = 12.sp)
-                    Text("• Architecture: ${model.architecture}", fontSize = 12.sp)
-                    Text("• Estimated Parameters: ${model.parameters}", fontSize = 12.sp)
-                    Text("• Context Window: ${model.contextWindow} tokens", fontSize = 12.sp)
-                    Text("• File Size: ${formatSizeBytes(model.sizeBytes)} (${model.sizeBytes} bytes)", fontSize = 12.sp)
-                    Text("• Storage Location: ${model.path}", fontSize = 11.sp, color = MaterialTheme.colorScheme.primary)
+                    Text("• File Format: GGUF v3 Binary", fontSize = 12.sp, color = Color.White.copy(alpha = 0.85f))
+                    Text("• Quantization Type: ${model.quantType}", fontSize = 12.sp, color = Color.White.copy(alpha = 0.85f))
+                    Text("• Architecture: ${model.architecture}", fontSize = 12.sp, color = Color.White.copy(alpha = 0.85f))
+                    Text("• Estimated Parameters: ${model.parameters}", fontSize = 12.sp, color = Color.White.copy(alpha = 0.85f))
+                    Text("• Context Window: ${model.contextWindow} tokens", fontSize = 12.sp, color = Color.White.copy(alpha = 0.85f))
+                    Text("• File Size: ${formatSizeBytes(model.sizeBytes)} (${model.sizeBytes} bytes)", fontSize = 12.sp, color = Color.White.copy(alpha = 0.85f))
+                    Text("• Storage Location: ${model.path}", fontSize = 11.sp, color = Color(0xFF38BDF8))
                 }
             },
             confirmButton = {
                 TextButton(onClick = { modelForDetails = null }) {
-                    Text("Close", fontSize = 12.sp)
+                    Text("Close", fontSize = 12.sp, color = Color(0xFF818CF8))
                 }
             }
         )
@@ -1667,8 +2180,9 @@ fun DevicePerformanceCard(
         modifier = modifier
             .fillMaxWidth()
             .testTag("device_performance_card"),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        shape = RoundedCornerShape(16.dp)
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B).copy(alpha = 0.65f)),
+        border = BorderStroke(0.8.dp, Color.White.copy(alpha = 0.12f)),
+        shape = RoundedCornerShape(18.dp)
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(

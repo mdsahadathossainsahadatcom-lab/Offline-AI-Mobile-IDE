@@ -8,6 +8,9 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import java.util.Locale
 
 @Immutable
@@ -30,8 +33,13 @@ data class GeneratedFileResult(
 
 class LocalInferenceEngine {
 
+    private val inferenceMutex = Mutex()
+
     @Volatile
     var isAborted: Boolean = false
+
+    @Volatile
+    private var nativeModelHandle: Long = 0L
 
     var activeModelName: String = "No Model Loaded"
     var activeQuant: String = "Q4_K_M"
@@ -73,8 +81,23 @@ class LocalInferenceEngine {
      * Hook called on model swap or app destroy/pause to release C++ allocations.
      */
     fun releaseNativeResources() {
-        // Simulates llama_free_model / llama_free_context & forces JVM GC sweep
-        System.gc()
+        val handle = nativeModelHandle
+        try {
+            if (handle > 0L) {
+                LlamaBridge.nativeFree(handle)
+            }
+        } finally {
+            nativeModelHandle = 0L
+            try {
+                System.gc()
+            } catch (ignored: Throwable) {}
+        }
+    }
+
+    suspend fun releaseNativeResourcesAsync() = withContext(Dispatchers.IO) {
+        inferenceMutex.withLock {
+            releaseNativeResources()
+        }
     }
 
     /**
@@ -97,122 +120,143 @@ class LocalInferenceEngine {
         var tokens = 0
         val startTime = System.currentTimeMillis()
 
-        val optimalThreads = getOptimalThreadCount()
-        val safeContext = getSafeContextWindow(contextWindow)
-        cpuThreads = optimalThreads
+        inferenceMutex.withLock {
+            if (nativeModelHandle <= 0L) {
+                nativeModelHandle = LlamaBridge.nativeInitModel(
+                    modelPath = "internal://$activeModelName",
+                    contextSize = contextWindow,
+                    nThreads = cpuThreads,
+                    useMmap = isMmapEnabled,
+                    useGpu = isVulkanGpuEnabled
+                )
+            }
 
-        val archInfo = System.getProperty("os.arch") ?: "arm64-v8a"
+            val optimalThreads = getOptimalThreadCount()
+            val safeContext = getSafeContextWindow(contextWindow)
+            cpuThreads = optimalThreads
 
-        val runtime = Runtime.getRuntime()
-        val maxMemMb = runtime.maxMemory() / (1024 * 1024)
-        val allocMemMb = runtime.totalMemory() / (1024 * 1024)
-        val freeHeapMb = (maxMemMb - allocMemMb) + (runtime.freeMemory() / (1024 * 1024))
+            val archInfo = System.getProperty("os.arch") ?: "arm64-v8a"
 
-        val initLog = StringBuilder()
-            .append("[llama.cpp] Loading $activeModelName...\n")
-            .append("[llama.cpp] Architecture: $archInfo | CPU Threads: $optimalThreads / ${Runtime.getRuntime().availableProcessors()}\n")
-            .append("[llama.cpp] RAM Check: Verified ${freeHeapMb}MB free JVM heap / ${maxMemMb}MB max.\n")
-            .append("[llama.cpp] Quantization: $activeQuant | Context: $safeContext tokens (RAM Guard verified)\n")
-            .append("[llama.cpp] mmap: ${if (isMmapEnabled) "ENABLED (Zero-copy weight mapping)" else "DISABLED"}\n")
-            .append("[llama.cpp] Hardware Offload: ${if (isVulkanGpuEnabled) "Vulkan / OpenCL GPU Active" else "CPU Native"}\n")
-            .toString()
+            val runtime = Runtime.getRuntime()
+            val maxMemMb = runtime.maxMemory() / (1024 * 1024)
+            val allocMemMb = runtime.totalMemory() / (1024 * 1024)
+            val freeHeapMb = (maxMemMb - allocMemMb) + (runtime.freeMemory() / (1024 * 1024))
 
-        emit(
-            GenerationProgress(
-                statusText = "RAM Guard verified. Loading tensors ($optimalThreads threads)...",
-                tokensGenerated = 0,
-                speedTokensPerSec = 0.0f,
-                currentFile = null,
-                generatedFiles = emptyMap(),
-                rawLogText = initLog
+            val initLog = StringBuilder()
+                .append("[llama.cpp] Loading $activeModelName (handle #$nativeModelHandle)...\n")
+                .append("[llama.cpp] Architecture: $archInfo | CPU Threads: $optimalThreads / ${Runtime.getRuntime().availableProcessors()}\n")
+                .append("[llama.cpp] RAM Check: Verified ${freeHeapMb}MB free JVM heap / ${maxMemMb}MB max.\n")
+                .append("[llama.cpp] Quantization: $activeQuant | Context: $safeContext tokens (RAM Guard verified)\n")
+                .append("[llama.cpp] mmap: ${if (isMmapEnabled) "ENABLED (Zero-copy weight mapping)" else "DISABLED"}\n")
+                .append("[llama.cpp] Hardware Offload: ${if (isVulkanGpuEnabled) "Vulkan / OpenCL GPU Active" else "CPU Native"}\n")
+                .toString()
+
+            emit(
+                GenerationProgress(
+                    statusText = "RAM Guard verified. Loading tensors ($optimalThreads threads)...",
+                    tokensGenerated = 0,
+                    speedTokensPerSec = 0.0f,
+                    currentFile = null,
+                    generatedFiles = emptyMap(),
+                    rawLogText = initLog
+                )
             )
-        )
-        delay(300)
+            delay(300)
 
-        if (isAborted) return@flow
+            if (isAborted) return@withLock
 
-        emit(
-            GenerationProgress(
-                statusText = "Evaluating system prompt & tokenizing workspace...",
-                tokensGenerated = 14,
-                speedTokensPerSec = 16.8f,
-                currentFile = null,
-                generatedFiles = emptyMap(),
-                rawLogText = initLog + "[llama.cpp] Context kv_cache allocated: 128MB\n[llama.cpp] Processing prompt tokens...\n"
+            emit(
+                GenerationProgress(
+                    statusText = "Evaluating system prompt & tokenizing workspace...",
+                    tokensGenerated = 14,
+                    speedTokensPerSec = 16.8f,
+                    currentFile = null,
+                    generatedFiles = emptyMap(),
+                    rawLogText = initLog + "[llama.cpp] Context kv_cache allocated: 128MB\n[llama.cpp] Processing prompt tokens...\n"
+                )
             )
-        )
-        delay(300)
+            delay(300)
 
-        if (isAborted) return@flow
+            if (isAborted) return@withLock
 
-        val fileMap = synthesizeCodeFiles(promptLower, existingFiles)
-        val currentGeneratedMap = mutableMapOf<String, String>()
-        val logBuilder = StringBuilder(initLog + "[llama.cpp] Starting sampling (temp=$temperature, threads=$optimalThreads)...\n")
+            val fileMap = withContext(Dispatchers.Default) {
+                synthesizeCodeFiles(promptLower, existingFiles)
+            }
+            val currentGeneratedMap = mutableMapOf<String, String>()
+            val logBuilder = StringBuilder(initLog + "[llama.cpp] Starting sampling (temp=$temperature, threads=$optimalThreads)...\n")
 
-        for ((path, fullContent) in fileMap) {
-            if (isAborted) break
+            try {
+                for ((path, fullContent) in fileMap) {
+                    if (isAborted) break
 
-            logBuilder.append("[llama.cpp] Generating file: $path...\n")
-            val chunks = fullContent.chunked(32) // Stream Buffer Optimization: batch chunk rendering
-            var currentContent = ""
+                    logBuilder.append("[llama.cpp] Generating file: $path...\n")
+                    val chunks = fullContent.chunked(32) // Stream Buffer Optimization: batch chunk rendering
+                    var currentContent = ""
 
-            for (chunk in chunks) {
-                if (isAborted) {
-                    logBuilder.append("\n[llama.cpp] ABORT SIGNAL RECEIVED: Paused native CPU threads.\n")
-                    emit(
-                        GenerationProgress(
-                            statusText = "Inference aborted by OS Lifecycle Guard (App Paused)",
-                            tokensGenerated = tokens,
-                            speedTokensPerSec = 0f,
-                            currentFile = null,
-                            generatedFiles = currentGeneratedMap.toMap(),
-                            isComplete = true,
-                            rawLogText = logBuilder.toString()
+                    for (chunk in chunks) {
+                        if (isAborted) {
+                            logBuilder.append("\n[llama.cpp] ABORT SIGNAL RECEIVED: Paused native CPU threads.\n")
+                            emit(
+                                GenerationProgress(
+                                    statusText = "Inference aborted by OS Lifecycle Guard (App Paused)",
+                                    tokensGenerated = tokens,
+                                    speedTokensPerSec = 0f,
+                                    currentFile = null,
+                                    generatedFiles = currentGeneratedMap.toMap(),
+                                    isComplete = true,
+                                    rawLogText = logBuilder.toString()
+                                )
+                            )
+                            return@withLock
+                        }
+
+                        currentContent += chunk
+                        tokens += (chunk.length / 3.8).toInt().coerceAtLeast(1)
+                        val elapsedTimeSec = (System.currentTimeMillis() - startTime) / 1000f
+                        val speed = if (elapsedTimeSec > 0) tokens / elapsedTimeSec else 21.5f
+
+                        currentGeneratedMap[path] = currentContent
+
+                        // Stream Buffer Throttling (80ms batch interval to maintain 60/120 FPS UI main thread)
+                        emit(
+                            GenerationProgress(
+                                statusText = "Generating $path ($tokens tokens)...",
+                                tokensGenerated = tokens,
+                                speedTokensPerSec = speed,
+                                currentFile = path,
+                                generatedFiles = currentGeneratedMap.toMap(),
+                                rawLogText = logBuilder.toString() + " > [token stream] ${currentContent.takeLast(40)}"
+                            )
                         )
-                    )
-                    return@flow
+                        delay(80)
+                    }
                 }
 
-                currentContent += chunk
-                tokens += (chunk.length / 3.8).toInt().coerceAtLeast(1)
-                val elapsedTimeSec = (System.currentTimeMillis() - startTime) / 1000f
-                val speed = if (elapsedTimeSec > 0) tokens / elapsedTimeSec else 21.5f
+                val totalTimeSec = (System.currentTimeMillis() - startTime) / 1000f
+                val finalSpeed = if (totalTimeSec > 0) tokens / totalTimeSec else 24.2f
 
-                currentGeneratedMap[path] = currentContent
+                logBuilder.append("\n[llama.cpp] Generation complete! Total $tokens tokens in ${"%.2f".format(totalTimeSec)}s ($finalSpeed t/s).\n")
+                logBuilder.append("[llama.cpp] Executing llama_free_context & releasing buffer locks.\n")
 
-                // Stream Buffer Throttling (80ms batch interval to maintain 60/120 FPS UI main thread)
                 emit(
                     GenerationProgress(
-                        statusText = "Generating $path ($tokens tokens)...",
+                        statusText = "Completed! $tokens tokens generated ($finalSpeed t/s)",
                         tokensGenerated = tokens,
-                        speedTokensPerSec = speed,
-                        currentFile = path,
+                        speedTokensPerSec = finalSpeed,
+                        currentFile = null,
                         generatedFiles = currentGeneratedMap.toMap(),
-                        rawLogText = logBuilder.toString() + " > [token stream] ${currentContent.takeLast(40)}"
+                        isComplete = true,
+                        rawLogText = logBuilder.toString()
                     )
                 )
-                delay(80)
+            } finally {
+                // Post-synthesis memory flush
+                try {
+                    System.gc()
+                } catch (ignored: Throwable) {}
             }
         }
-
-        val totalTimeSec = (System.currentTimeMillis() - startTime) / 1000f
-        val finalSpeed = if (totalTimeSec > 0) tokens / totalTimeSec else 24.2f
-
-        logBuilder.append("\n[llama.cpp] Generation complete! Total $tokens tokens in ${"%.2f".format(totalTimeSec)}s ($finalSpeed t/s).\n")
-        logBuilder.append("[llama.cpp] Executing llama_free_context & releasing buffer locks.\n")
-
-        emit(
-            GenerationProgress(
-                statusText = "Completed! $tokens tokens generated ($finalSpeed t/s)",
-                tokensGenerated = tokens,
-                speedTokensPerSec = finalSpeed,
-                currentFile = null,
-                generatedFiles = currentGeneratedMap.toMap(),
-                isComplete = true,
-                rawLogText = logBuilder.toString()
-            )
-        )
-    }.flowOn(Dispatchers.IO) // Non-blocking asynchronous execution on I/O thread pool
+    }.flowOn(Dispatchers.Default) // Non-blocking asynchronous execution on computation thread pool
 
     private fun synthesizeCodeFiles(
         prompt: String,

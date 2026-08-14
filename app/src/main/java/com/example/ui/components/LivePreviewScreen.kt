@@ -299,6 +299,7 @@ fun LivePreviewScreen(
                     AndroidView(
                         factory = { ctx ->
                             WebView(ctx).apply {
+                                setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
                                 settings.javaScriptEnabled = true
                                 settings.domStorageEnabled = true
                                 settings.allowFileAccess = true

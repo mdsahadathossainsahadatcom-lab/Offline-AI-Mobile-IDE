@@ -154,6 +154,7 @@ fun MainScreen(viewModel: IdeViewModel) {
     val contextWindow by viewModel.contextWindow.collectAsState()
     val isHudEnabled by viewModel.isPerformanceHudEnabled.collectAsState()
     val importProgress by viewModel.importProgress.collectAsState()
+    val quantizationProgress by viewModel.quantizationProgress.collectAsState()
     val downloadStates by viewModel.downloadStates.collectAsState()
     val expandedCategories by viewModel.expandedCategories.collectAsState()
     val agentState by viewModel.agentState.collectAsState()
@@ -175,6 +176,13 @@ fun MainScreen(viewModel: IdeViewModel) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val focusManager = LocalFocusManager.current
+
+    // Reactive Toast Notification Event Collector (RAM Guard & System Alerts)
+    LaunchedEffect(Unit) {
+        viewModel.toastEvents.collect { alertEvent ->
+            android.widget.Toast.makeText(context, alertEvent.message, alertEvent.duration).show()
+        }
+    }
 
     // Automatically dismiss soft keyboard when navigating between tabs
     LaunchedEffect(navScreen) {
@@ -808,6 +816,7 @@ fun MainScreen(viewModel: IdeViewModel) {
                             models = allModels,
                             selectedModel = selectedModel,
                             importProgress = importProgress,
+                            quantizationProgress = quantizationProgress,
                             isGenerating = isGenerating,
                             memoryCheckResult = memoryCheckResult,
                             contextWindow = contextWindow,
@@ -829,7 +838,9 @@ fun MainScreen(viewModel: IdeViewModel) {
                             onToggleAutoSave = { viewModel.setAutoSaveEnabled(it) },
                             onProviderSettingsChanged = { viewModel.updateAiProviderSettings(it) },
                             onTestConnection = { viewModel.testCloudConnection() },
-                            onClearHistory = { viewModel.clearChatHistory() }
+                            onClearHistory = { viewModel.clearChatHistory() },
+                            onStartQuantization = { model, options -> viewModel.startModelQuantization(context, model, options) },
+                            onCancelQuantization = { viewModel.cancelModelQuantization() }
                         )
 
                     }
@@ -961,6 +972,7 @@ fun MainScreen(viewModel: IdeViewModel) {
                         expandedCategories = expandedCategories,
                         onToggleCategory = { viewModel.toggleCategoryExpanded(it) },
                         importProgress = importProgress,
+                        quantizationProgress = quantizationProgress,
                         memoryCheckResult = memoryCheckResult,
                         onModelSelected = { viewModel.selectModelProfile(it) },
                         onOffloadModel = { viewModel.offloadModel() },
@@ -968,6 +980,8 @@ fun MainScreen(viewModel: IdeViewModel) {
                         onDownloadFromUrl = { url, name -> viewModel.downloadGgufWithManager(context, url, name, null) },
                         onDeleteModel = { viewModel.deleteModelProfile(it) },
                         onDismissImportProgress = { viewModel.dismissImportProgress() },
+                        onStartQuantization = { model, options -> viewModel.startModelQuantization(context, model, options) },
+                        onCancelQuantization = { viewModel.cancelModelQuantization() },
                         onDismiss = { showModelManagerDialog = false }
                     )
                 }

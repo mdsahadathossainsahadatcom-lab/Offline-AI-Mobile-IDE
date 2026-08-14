@@ -370,14 +370,28 @@ fun AiAssistantScreen(
                             )
                         }
 
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(imageVector = Icons.Default.Speed, contentDescription = "Speed", tint = MaterialTheme.colorScheme.secondary, modifier = Modifier.width(14.dp))
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .background(Color(0xFF0284C7).copy(alpha = 0.2f), shape = RoundedCornerShape(6.dp))
+                                .border(0.5.dp, Color(0xFF38BDF8).copy(alpha = 0.4f), shape = RoundedCornerShape(6.dp))
+                                .clickable { showDiagnosticPanel = !showDiagnosticPanel }
+                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                        ) {
+                            Icon(imageVector = Icons.Default.Speed, contentDescription = "Speed", tint = Color(0xFF38BDF8), modifier = Modifier.size(13.dp))
                             Spacer(modifier = Modifier.width(4.dp))
                             Text(
                                 text = "${"%.1f".format(generationProgress.speedTokensPerSec)} t/s",
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.secondary
+                                color = Color(0xFF38BDF8)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "• D3",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF818CF8)
                             )
                         }
                     }
@@ -944,271 +958,20 @@ fun parseThoughtAndContent(text: String): ParsedThoughtContent {
     }
 }
 
-@Composable
-fun ThinkingProcessCard(
-    reasoningText: String,
-    isThinking: Boolean = false,
-    modifier: Modifier = Modifier
-) {
-    var isExpanded by remember { mutableStateOf(false) }
-
-    Card(
-        modifier = modifier
-            .fillMaxWidth()
-            .clickable { isExpanded = !isExpanded },
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-        ),
-        shape = RoundedCornerShape(12.dp),
-        border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
-    ) {
-        Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (isThinking) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(14.dp),
-                            strokeWidth = 2.dp,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                    } else {
-                        Icon(
-                            imageVector = Icons.Default.AutoAwesome,
-                            contentDescription = "Thinking",
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(14.dp)
-                        )
-                    }
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = if (isThinking) "Thinking..." else "Thinking Process",
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-
-                Icon(
-                    imageVector = if (isExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
-                    contentDescription = if (isExpanded) "Collapse" else "Expand",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(18.dp)
-                )
-            }
-
-            if (isExpanded && reasoningText.isNotBlank()) {
-                Spacer(modifier = Modifier.height(6.dp))
-                Text(
-                    text = reasoningText,
-                    fontSize = 11.sp,
-                    fontFamily = FontFamily.Monospace,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.85f),
-                    lineHeight = 15.sp
-                )
-            }
-        }
-    }
-}
-
+/**
+ * Delegate to ModernAgentPlanningCard for backwards compatibility
+ */
 @Composable
 fun AgentPlanningCard(
     agentState: AgentState,
-    onCancelAgent: () -> Unit
+    onCancelAgent: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
-    val infiniteTransition = rememberInfiniteTransition(label = "AgentPulse")
-    val pulsingAlpha by infiniteTransition.animateFloat(
-        initialValue = 0.4f,
-        targetValue = 1.0f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 700, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "CyanDotPulse"
+    ModernAgentPlanningCard(
+        agentState = agentState,
+        onCancelAgent = onCancelAgent,
+        modifier = modifier
     )
-
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .animateContentSize(),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF020617).copy(alpha = 0.8f)),
-        border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.15f)),
-        shape = RoundedCornerShape(16.dp)
-    ) {
-        Column(modifier = Modifier.padding(14.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (agentState.isRunning) {
-                        Surface(
-                            shape = CircleShape,
-                            color = Color(0xFF38BDF8).copy(alpha = pulsingAlpha),
-                            modifier = Modifier.size(8.dp)
-                        ) {}
-                        Spacer(modifier = Modifier.width(8.dp))
-                    } else {
-                        Icon(
-                            imageVector = Icons.Default.AutoAwesome,
-                            contentDescription = "Agent Engine",
-                            tint = Color(0xFF38BDF8),
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                    }
-                    Text(
-                        text = "Autonomous ReAct Agent",
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White
-                    )
-                }
-
-                if (agentState.isRunning) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Surface(
-                            shape = CircleShape,
-                            color = Color(0xFF0284C7).copy(alpha = 0.3f),
-                            border = BorderStroke(0.5.dp, Color(0xFF38BDF8).copy(alpha = 0.5f))
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
-                                Surface(
-                                    shape = CircleShape,
-                                    color = Color(0xFF38BDF8).copy(alpha = pulsingAlpha),
-                                    modifier = Modifier.size(6.dp)
-                                ) {}
-                                Text(
-                                    text = "Executing...",
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color(0xFF38BDF8)
-                                )
-                            }
-                        }
-
-                        OutlinedButton(
-                            onClick = onCancelAgent,
-                            modifier = Modifier.height(26.dp),
-                            shape = RoundedCornerShape(13.dp),
-                            border = BorderStroke(0.5.dp, Color(0xFFEF4444).copy(alpha = 0.5f)),
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFEF4444)),
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
-                        ) {
-                            Text("Cancel", fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                        }
-                    }
-                } else if (agentState.isCancelled) {
-                    Surface(
-                        shape = CircleShape,
-                        color = Color(0xFFEF4444).copy(alpha = 0.2f),
-                        border = BorderStroke(0.5.dp, Color(0xFFEF4444).copy(alpha = 0.4f))
-                    ) {
-                        Text(
-                            text = "Cancelled",
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color(0xFFFCA5A5),
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
-                        )
-                    }
-                } else {
-                    Surface(
-                        shape = CircleShape,
-                        color = Color(0xFF10B981).copy(alpha = 0.2f),
-                        border = BorderStroke(0.5.dp, Color(0xFF10B981).copy(alpha = 0.4f))
-                    ) {
-                        Text(
-                            text = "Completed",
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color(0xFF6EE7B7),
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
-                        )
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                text = "Goal: ${agentState.userGoal}",
-                fontSize = 12.sp,
-                color = Color.White.copy(alpha = 0.9f),
-                fontWeight = FontWeight.SemiBold
-            )
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            // Step Checklist inside terminal glass container
-            Surface(
-                shape = RoundedCornerShape(10.dp),
-                color = Color.Black.copy(alpha = 0.4f),
-                border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.08f)),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(
-                    modifier = Modifier.padding(10.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    agentState.steps.forEach { step ->
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            val (icon, color) = when (step.status) {
-                                AgentStepStatus.COMPLETED -> "🟢" to Color(0xFF10B981)
-                                AgentStepStatus.IN_PROGRESS -> "🟡" to Color(0xFFF59E0B)
-                                AgentStepStatus.FAILED -> "🔴" to Color(0xFFEF4444)
-                                AgentStepStatus.PENDING -> "⚪" to Color(0xFF94A3B8)
-                            }
-
-                            Text(text = icon, fontSize = 11.sp)
-                            Spacer(modifier = Modifier.width(6.dp))
-
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = "Step ${step.stepIndex}: ${step.thought}",
-                                    fontSize = 11.sp,
-                                    fontFamily = FontFamily.Monospace,
-                                    fontWeight = if (step.status == AgentStepStatus.IN_PROGRESS) FontWeight.Bold else FontWeight.Normal,
-                                    color = if (step.status == AgentStepStatus.IN_PROGRESS) Color(0xFF38BDF8) else Color.White.copy(alpha = 0.85f)
-                                )
-                                if (step.observation.isNotBlank()) {
-                                    Text(
-                                        text = "→ ${step.observation}",
-                                        fontSize = 10.sp,
-                                        fontFamily = FontFamily.Monospace,
-                                        color = Color(0xFF818CF8)
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            if (agentState.statusMessage.isNotBlank()) {
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = agentState.statusMessage,
-                    fontSize = 10.sp,
-                    fontFamily = FontFamily.Monospace,
-                    color = Color(0xFF38BDF8).copy(alpha = 0.9f)
-                )
-            }
-        }
-    }
 }
 
 @Composable

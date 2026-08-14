@@ -66,7 +66,12 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.SdStorage
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Warning
+import com.example.engine.gguf.GgufQuantType
+import com.example.engine.gguf.QuantizationOptions
+import com.example.engine.gguf.QuantizationProgress
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -374,6 +379,7 @@ fun ModelManagerScreen(
     expandedCategories: Set<String> = setOf("Installed Models", "Coding", "General", "Math"),
     onToggleCategory: (String) -> Unit = {},
     importProgress: GgufImportProgress? = null,
+    quantizationProgress: QuantizationProgress? = null,
     memoryCheckResult: MemoryCheckResult? = null,
     onModelSelected: (Long) -> Unit,
     onOffloadModel: () -> Unit,
@@ -381,6 +387,8 @@ fun ModelManagerScreen(
     onDownloadFromUrl: (String, String) -> Unit,
     onDeleteModel: (ModelProfileEntity) -> Unit,
     onDismissImportProgress: () -> Unit,
+    onStartQuantization: (ModelProfileEntity, QuantizationOptions) -> Unit = { _, _ -> },
+    onCancelQuantization: () -> Unit = {},
     onDismiss: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
@@ -440,6 +448,8 @@ fun ModelManagerScreen(
     // State for Dialogs
     var showAddFabDialog by remember { mutableStateOf(false) }
     var showHuggingFaceUrlDialog by remember { mutableStateOf(false) }
+    var showQuantizerModal by remember { mutableStateOf(false) }
+    var modelToQuantize by remember { mutableStateOf<ModelProfileEntity?>(null) }
     var huggingFaceUrlInput by remember { mutableStateOf("") }
     var hfModelNameInput by remember { mutableStateOf("") }
     var modelToDelete by remember { mutableStateOf<ModelProfileEntity?>(null) }
@@ -977,51 +987,80 @@ fun ModelManagerScreen(
                                     color = Color.White.copy(alpha = 0.12f)
                                 )
 
-                                // Action Row: Load/Offload Toggle + Delete Icon
+                                // Action Row: Load/Offload Toggle + Quantize Button + Delete Icon
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    if (isActiveInRam) {
-                                        Button(
-                                            onClick = onOffloadModel,
-                                            colors = ButtonDefaults.buttonColors(
-                                                containerColor = Color(0xFFEF4444).copy(alpha = 0.85f),
-                                                contentColor = Color.White
-                                            ),
-                                            shape = RoundedCornerShape(12.dp),
-                                            modifier = Modifier
-                                                .height(38.dp)
-                                                .testTag("offload_model_btn_${model.id}")
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Default.Eject,
-                                                contentDescription = "Offload",
-                                                modifier = Modifier.size(16.dp)
-                                            )
-                                            Spacer(modifier = Modifier.width(6.dp))
-                                            Text("Offload from RAM", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                                    Row(
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        if (isActiveInRam) {
+                                            Button(
+                                                onClick = onOffloadModel,
+                                                colors = ButtonDefaults.buttonColors(
+                                                    containerColor = Color(0xFFEF4444).copy(alpha = 0.85f),
+                                                    contentColor = Color.White
+                                                ),
+                                                shape = RoundedCornerShape(12.dp),
+                                                modifier = Modifier
+                                                    .height(38.dp)
+                                                    .testTag("offload_model_btn_${model.id}")
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Eject,
+                                                    contentDescription = "Offload",
+                                                    modifier = Modifier.size(16.dp)
+                                                )
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                Text("Offload from RAM", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                                            }
+                                        } else {
+                                            Button(
+                                                onClick = { onModelSelected(model.id) },
+                                                colors = ButtonDefaults.buttonColors(
+                                                    containerColor = Color(0xFF6366F1),
+                                                    contentColor = Color.White
+                                                ),
+                                                shape = RoundedCornerShape(12.dp),
+                                                modifier = Modifier
+                                                    .height(38.dp)
+                                                    .testTag("load_model_btn_${model.id}")
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.PlayArrow,
+                                                    contentDescription = "Load",
+                                                    modifier = Modifier.size(16.dp)
+                                                )
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                Text("Load Model", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                                            }
                                         }
-                                    } else {
-                                        Button(
-                                            onClick = { onModelSelected(model.id) },
-                                            colors = ButtonDefaults.buttonColors(
-                                                containerColor = Color(0xFF6366F1),
-                                                contentColor = Color.White
+
+                                        // Quantize / Hardware Optimize Button
+                                        OutlinedButton(
+                                            onClick = {
+                                                modelToQuantize = model
+                                                showQuantizerModal = true
+                                            },
+                                            colors = ButtonDefaults.outlinedButtonColors(
+                                                contentColor = Color(0xFF818CF8)
                                             ),
+                                            border = BorderStroke(1.dp, Color(0xFF6366F1).copy(alpha = 0.5f)),
                                             shape = RoundedCornerShape(12.dp),
                                             modifier = Modifier
                                                 .height(38.dp)
-                                                .testTag("load_model_btn_${model.id}")
+                                                .testTag("quantize_model_btn_${model.id}")
                                         ) {
                                             Icon(
-                                                imageVector = Icons.Default.PlayArrow,
-                                                contentDescription = "Load",
-                                                modifier = Modifier.size(16.dp)
+                                                imageVector = Icons.Default.Tune,
+                                                contentDescription = "Quantize",
+                                                modifier = Modifier.size(15.dp)
                                             )
-                                            Spacer(modifier = Modifier.width(6.dp))
-                                            Text("Load Model", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                                            Spacer(modifier = Modifier.width(5.dp))
+                                            Text("Quantize", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                                         }
                                     }
 
@@ -1490,6 +1529,56 @@ fun ModelManagerScreen(
                             }
                         }
                     }
+
+                    // Option 3: Quantize & Optimize Local Model
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                showAddFabDialog = false
+                                showQuantizerModal = true
+                            }
+                            .testTag("fab_quantize_option_card"),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceContainer
+                        ),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(14.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Surface(
+                                shape = CircleShape,
+                                color = Color(0xFF6366F1).copy(alpha = 0.20f),
+                                modifier = Modifier.size(40.dp)
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = Icons.Default.Tune,
+                                        contentDescription = null,
+                                        tint = Color(0xFF818CF8),
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                            }
+                            Column {
+                                Text(
+                                    text = "Quantize & Optimize Model",
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = "Compress larger GGUF to Q4_K_M or Q2_K on device",
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
                 }
             },
             confirmButton = {},
@@ -1636,6 +1725,23 @@ fun ModelManagerScreen(
             }
         )
     }
+
+    // In-App GGUF Hardware Quantizer & Compression Dialog
+    if (showQuantizerModal || modelToQuantize != null || quantizationProgress?.isProcessing == true) {
+        GgufQuantizerDialog(
+            allModels = models,
+            initialSelectedModel = modelToQuantize,
+            quantizationProgress = quantizationProgress,
+            onStartQuantization = { model, options ->
+                onStartQuantization(model, options)
+            },
+            onCancelQuantization = onCancelQuantization,
+            onDismiss = {
+                showQuantizerModal = false
+                modelToQuantize = null
+            }
+        )
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -1647,6 +1753,7 @@ fun ModelManagerDialog(
     expandedCategories: Set<String> = setOf("Installed Models", "Coding", "General", "Math"),
     onToggleCategory: (String) -> Unit = {},
     importProgress: GgufImportProgress? = null,
+    quantizationProgress: QuantizationProgress? = null,
     memoryCheckResult: MemoryCheckResult? = null,
     onModelSelected: (Long) -> Unit,
     onOffloadModel: () -> Unit,
@@ -1654,6 +1761,8 @@ fun ModelManagerDialog(
     onDownloadFromUrl: (String, String) -> Unit,
     onDeleteModel: (ModelProfileEntity) -> Unit,
     onDismissImportProgress: () -> Unit,
+    onStartQuantization: (ModelProfileEntity, QuantizationOptions) -> Unit = { _, _ -> },
+    onCancelQuantization: () -> Unit = {},
     onDismiss: () -> Unit
 ) {
     ModalBottomSheet(
@@ -1669,6 +1778,7 @@ fun ModelManagerDialog(
             expandedCategories = expandedCategories,
             onToggleCategory = onToggleCategory,
             importProgress = importProgress,
+            quantizationProgress = quantizationProgress,
             memoryCheckResult = memoryCheckResult,
             onModelSelected = onModelSelected,
             onOffloadModel = onOffloadModel,
@@ -1676,6 +1786,8 @@ fun ModelManagerDialog(
             onDownloadFromUrl = onDownloadFromUrl,
             onDeleteModel = onDeleteModel,
             onDismissImportProgress = onDismissImportProgress,
+            onStartQuantization = onStartQuantization,
+            onCancelQuantization = onCancelQuantization,
             onDismiss = onDismiss
         )
     }

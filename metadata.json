@@ -1,5 +1,5 @@
 {
-  "name": "Local AI Mobile IDE",
+  "name": "Local AI IDE",
   "description": "Fully offline mobile IDE running GGUF LLM models locally to generate, edit, and preview multi-file web apps.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]

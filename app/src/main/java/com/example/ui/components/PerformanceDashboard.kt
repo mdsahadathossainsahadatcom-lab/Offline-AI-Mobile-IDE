@@ -1,6 +1,7 @@
 package com.example.ui.components
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -25,6 +26,7 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Storage
+import androidx.compose.material.icons.filled.Timeline
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
@@ -72,9 +74,13 @@ enum class ChartViewMode {
     SPEED, MEMORY, DUAL
 }
 
+enum class ChartEngineMode {
+    D3_VECTOR, NATIVE_CANVAS
+}
+
 /**
- * High-performance Compose dashboard displaying real-time token generation speed
- * and memory footprint (RAM/VRAM) during GGUF model inference.
+ * High-performance Compose dashboard displaying real-time token generation speed (TPS)
+ * and memory footprint (RAM/VRAM) during GGUF model inference with an interactive D3.js line chart.
  */
 @Composable
 fun PerformanceDashboard(
@@ -85,6 +91,7 @@ fun PerformanceDashboard(
     modifier: Modifier = Modifier
 ) {
     var chartMode by remember { mutableStateOf(ChartViewMode.DUAL) }
+    var engineMode by remember { mutableStateOf(ChartEngineMode.D3_VECTOR) }
 
     // History buffer of performance samples
     val samples = remember {
@@ -120,7 +127,7 @@ fun PerformanceDashboard(
                 tokensGenerated = tokens
             )
 
-            if (samples.size >= 20) {
+            if (samples.size >= 30) {
                 samples.removeAt(0)
             }
             samples.add(newSample)
@@ -128,10 +135,10 @@ fun PerformanceDashboard(
     }
 
     // Calculated metrics
-    val currentSpeed = samples.lastOrNull()?.speedTokSec ?: 0f
-    val peakSpeed = samples.maxOfOrNull { it.speedTokSec } ?: 0f
-    val avgSpeed = if (samples.isNotEmpty()) samples.map { it.speedTokSec }.average().toFloat() else 0f
-    val currentRamMb = samples.lastOrNull()?.ramUsedMb ?: 0L
+    val currentSpeed = if (isGenerating && generationProgress != null) generationProgress.speedTokensPerSec else (samples.lastOrNull()?.speedTokSec ?: 0f)
+    val peakSpeed = samples.maxOfOrNull { it.speedTokSec } ?: currentSpeed
+    val avgSpeed = if (samples.isNotEmpty()) samples.map { it.speedTokSec }.average().toFloat() else currentSpeed
+    val currentRamMb = diagnosticState?.usedRamMb ?: (samples.lastOrNull()?.ramUsedMb ?: 0L)
     val modelSizeBytes = selectedModel?.sizeBytes ?: 1_680_000_000L
     val modelSizeMb = modelSizeBytes / (1024 * 1024)
 
@@ -139,14 +146,11 @@ fun PerformanceDashboard(
         modifier = modifier
             .fillMaxWidth()
             .testTag("performance_dashboard_card"),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF0F172A)),
-        border = androidx.compose.foundation.BorderStroke(
-            1.dp,
-            if (isGenerating) Color(0xFF38BDF8) else Color(0xFF334155)
-        ),
-        shape = RoundedCornerShape(16.dp)
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF0F172A).copy(alpha = 0.85f)),
+        border = BorderStroke(0.8.dp, Color.White.copy(alpha = 0.15f)),
+        shape = RoundedCornerShape(18.dp)
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
+        Column(modifier = Modifier.padding(14.dp)) {
             // Header Bar
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -162,7 +166,7 @@ fun PerformanceDashboard(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "GGUF INFERENCE PERFORMANCE DASHBOARD",
+                        text = "REAL-TIME INFERENCE TELEMETRY",
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold,
                         fontFamily = FontFamily.Monospace,
@@ -170,36 +174,65 @@ fun PerformanceDashboard(
                     )
                 }
 
-                IconButton(
-                    onClick = {
-                        samples.clear()
-                        sampleCounter = 0
-                        samples.addAll(
-                            listOf(
-                                PerformanceSample("0s", 12.0f, 2050, 41f, 0),
-                                PerformanceSample("1s", 16.5f, 2100, 42f, 16),
-                                PerformanceSample("2s", 20.2f, 2180, 43f, 36)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    // Engine Switcher: D3 vs Native
+                    FilterChip(
+                        selected = engineMode == ChartEngineMode.D3_VECTOR,
+                        onClick = {
+                            engineMode = if (engineMode == ChartEngineMode.D3_VECTOR) {
+                                ChartEngineMode.NATIVE_CANVAS
+                            } else {
+                                ChartEngineMode.D3_VECTOR
+                            }
+                        },
+                        label = {
+                            Text(
+                                text = if (engineMode == ChartEngineMode.D3_VECTOR) "📊 D3.js" else "⚡ Native",
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold
                             )
-                        )
-                    },
-                    modifier = Modifier.size(28.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Refresh,
-                        contentDescription = "Reset Chart Telemetry",
-                        tint = Color(0xFF94A3B8),
-                        modifier = Modifier.size(16.dp)
+                        },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = Color(0xFF6366F1).copy(alpha = 0.35f),
+                            selectedLabelColor = Color(0xFF818CF8)
+                        ),
+                        modifier = Modifier.height(24.dp)
                     )
+
+                    Spacer(modifier = Modifier.width(4.dp))
+
+                    IconButton(
+                        onClick = {
+                            samples.clear()
+                            sampleCounter = 0
+                            samples.addAll(
+                                listOf(
+                                    PerformanceSample("0s", 12.0f, 2050, 41f, 0),
+                                    PerformanceSample("1s", 16.5f, 2100, 42f, 16),
+                                    PerformanceSample("2s", 20.2f, 2180, 43f, 36)
+                                )
+                            )
+                        },
+                        modifier = Modifier.size(26.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Refresh,
+                            contentDescription = "Reset Chart Telemetry",
+                            tint = Color(0xFF94A3B8),
+                            modifier = Modifier.size(15.dp)
+                        )
+                    }
                 }
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(10.dp))
 
             // Model Identity Header Banner
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(Color(0xFF1E293B), shape = RoundedCornerShape(10.dp))
+                    .background(Color(0xFF1E293B).copy(alpha = 0.7f), shape = RoundedCornerShape(12.dp))
+                    .border(0.5.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(12.dp))
                     .padding(10.dp)
             ) {
                 Row(
@@ -207,15 +240,16 @@ fun PerformanceDashboard(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column {
+                    Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = selectedModel?.name ?: "No Local Model Selected",
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
-                            color = Color(0xFF38BDF8)
+                            color = Color(0xFF38BDF8),
+                            maxLines = 1
                         )
                         Text(
-                            text = "Quant: ${selectedModel?.quantType ?: "Q4_K_M"} • Arch: ${selectedModel?.architecture ?: "llama"} • Weight Size: ${modelSizeMb} MB",
+                            text = "Quant: ${selectedModel?.quantType ?: "Q4_K_M"} • Arch: ${selectedModel?.architecture ?: "llama"} • Weights: ${modelSizeMb} MB",
                             fontSize = 10.sp,
                             color = Color(0xFF94A3B8)
                         )
@@ -223,12 +257,19 @@ fun PerformanceDashboard(
 
                     Box(
                         modifier = Modifier
-                            .background(Color(0xFF0284C7).copy(alpha = 0.2f), shape = RoundedCornerShape(6.dp))
-                            .border(1.dp, Color(0xFF0284C7), shape = RoundedCornerShape(6.dp))
-                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                            .background(
+                                if (isGenerating) Color(0xFF22C55E).copy(alpha = 0.2f) else Color(0xFF0284C7).copy(alpha = 0.2f),
+                                shape = RoundedCornerShape(6.dp)
+                            )
+                            .border(
+                                1.dp,
+                                if (isGenerating) Color(0xFF22C55E) else Color(0xFF0284C7),
+                                shape = RoundedCornerShape(6.dp)
+                            )
+                            .padding(horizontal = 8.dp, vertical = 3.dp)
                     ) {
                         Text(
-                            text = if (isGenerating) "GENERATING..." else "IDLE / READY",
+                            text = if (isGenerating) "INFERENCING" else "READY",
                             fontSize = 9.sp,
                             fontWeight = FontWeight.Bold,
                             color = if (isGenerating) Color(0xFF4ADE80) else Color(0xFF38BDF8)
@@ -237,16 +278,16 @@ fun PerformanceDashboard(
                 }
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(10.dp))
 
             // Stat Metrics Grid
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                // Metric 1: Token Speed
+                // Metric 1: Token Speed (TPS)
                 StatCard(
-                    title = "SPEED (TOK/S)",
+                    title = "TPS (SPEED)",
                     value = "%.1f".format(currentSpeed),
                     subtext = "Peak: %.1f • Avg: %.1f".format(peakSpeed, avgSpeed),
                     icon = Icons.Default.Speed,
@@ -254,18 +295,18 @@ fun PerformanceDashboard(
                     modifier = Modifier.weight(1f)
                 )
 
-                // Metric 2: Memory Footprint
+                // Metric 2: Memory Footprint (RAM)
                 StatCard(
                     title = "RAM FOOTPRINT",
                     value = "${currentRamMb} MB",
-                    subtext = "VRAM mmap: ${modelSizeMb} MB",
+                    subtext = "VRAM Cache: ${modelSizeMb} MB",
                     icon = Icons.Default.Memory,
                     accentColor = Color(0xFF4ADE80),
                     modifier = Modifier.weight(1f)
                 )
             }
 
-            Spacer(modifier = Modifier.height(14.dp))
+            Spacer(modifier = Modifier.height(12.dp))
 
             // Chart View Filter Chips
             Row(
@@ -274,198 +315,205 @@ fun PerformanceDashboard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "REAL-TIME TELEMETRY GRAPH",
+                    text = "D3 REAL-TIME TELEMETRY GRAPH",
                     fontSize = 10.sp,
                     fontWeight = FontWeight.Bold,
                     fontFamily = FontFamily.Monospace,
                     color = Color(0xFF94A3B8)
                 )
 
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     FilterChip(
                         selected = chartMode == ChartViewMode.SPEED,
                         onClick = { chartMode = ChartViewMode.SPEED },
-                        label = { Text("Speed", fontSize = 10.sp) },
+                        label = { Text("TPS", fontSize = 9.sp) },
                         colors = FilterChipDefaults.filterChipColors(
                             selectedContainerColor = Color(0xFF0284C7),
                             selectedLabelColor = Color.White
                         ),
-                        modifier = Modifier.height(26.dp)
+                        modifier = Modifier.height(24.dp)
                     )
                     FilterChip(
                         selected = chartMode == ChartViewMode.MEMORY,
                         onClick = { chartMode = ChartViewMode.MEMORY },
-                        label = { Text("RAM", fontSize = 10.sp) },
+                        label = { Text("RAM", fontSize = 9.sp) },
                         colors = FilterChipDefaults.filterChipColors(
                             selectedContainerColor = Color(0xFF15803D),
                             selectedLabelColor = Color.White
                         ),
-                        modifier = Modifier.height(26.dp)
+                        modifier = Modifier.height(24.dp)
                     )
                     FilterChip(
                         selected = chartMode == ChartViewMode.DUAL,
                         onClick = { chartMode = ChartViewMode.DUAL },
-                        label = { Text("Dual", fontSize = 10.sp) },
+                        label = { Text("Dual", fontSize = 9.sp) },
                         colors = FilterChipDefaults.filterChipColors(
                             selectedContainerColor = Color(0xFF6366F1),
                             selectedLabelColor = Color.White
                         ),
-                        modifier = Modifier.height(26.dp)
+                        modifier = Modifier.height(24.dp)
                     )
                 }
             }
 
-            Spacer(modifier = Modifier.height(10.dp))
+            Spacer(modifier = Modifier.height(8.dp))
 
-            // Chart Canvas
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(160.dp)
-                    .background(Color(0xFF020617), shape = RoundedCornerShape(12.dp))
-                    .border(1.dp, Color(0xFF1E293B), RoundedCornerShape(12.dp))
-                    .padding(12.dp)
-            ) {
-                if (samples.isEmpty()) {
-                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text("No telemetry data available", color = Color.Gray, fontSize = 12.sp)
-                    }
-                } else {
-                    val maxSpeed = (samples.maxOfOrNull { it.speedTokSec } ?: 30f).coerceAtLeast(30f)
-                    val maxRam = (samples.maxOfOrNull { it.ramUsedMb } ?: 4000L).coerceAtLeast(4000L).toFloat()
+            // Chart Container: D3 WebView or Native Canvas
+            if (engineMode == ChartEngineMode.D3_VECTOR) {
+                D3PerformanceLineChart(
+                    samples = samples,
+                    chartMode = chartMode,
+                    isGenerating = isGenerating,
+                    height = 175.dp
+                )
+            } else {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(175.dp)
+                        .background(Color(0xFF020617), shape = RoundedCornerShape(14.dp))
+                        .border(1.dp, Color(0xFF1E293B), RoundedCornerShape(14.dp))
+                        .padding(12.dp)
+                ) {
+                    if (samples.isEmpty()) {
+                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Text("No telemetry data available", color = Color.Gray, fontSize = 12.sp)
+                        }
+                    } else {
+                        val maxSpeed = (samples.maxOfOrNull { it.speedTokSec } ?: 30f).coerceAtLeast(30f)
+                        val maxRam = (samples.maxOfOrNull { it.ramUsedMb } ?: 4000L).coerceAtLeast(4000L).toFloat()
 
-                    Canvas(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .pointerInput(Unit) {
-                                detectTapGestures { offset ->
-                                    val count = samples.size
-                                    if (count > 0) {
-                                        val stepX = size.width / (count - 1).coerceAtLeast(1)
-                                        val index = (offset.x / stepX).toInt().coerceIn(0, count - 1)
-                                        selectedSampleIndex = index
+                        Canvas(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .pointerInput(Unit) {
+                                    detectTapGestures { offset ->
+                                        val count = samples.size
+                                        if (count > 0) {
+                                            val stepX = size.width / (count - 1).coerceAtLeast(1)
+                                            val index = (offset.x / stepX).toInt().coerceIn(0, count - 1)
+                                            selectedSampleIndex = index
+                                        }
                                     }
                                 }
-                            }
-                    ) {
-                        val width = size.width
-                        val height = size.height
+                        ) {
+                            val width = size.width
+                            val height = size.height
 
-                        // Draw Grid Lines
-                        val gridLines = 4
-                        for (i in 0..gridLines) {
-                            val y = height * (i.toFloat() / gridLines)
-                            drawLine(
-                                color = Color(0xFF1E293B),
-                                start = Offset(0f, y),
-                                end = Offset(width, y),
-                                strokeWidth = 1f
-                            )
-                        }
-
-                        val count = samples.size
-                        val stepX = width / (count - 1).coerceAtLeast(1)
-
-                        // 1. Draw Speed Line (Cyan)
-                        if (chartMode == ChartViewMode.SPEED || chartMode == ChartViewMode.DUAL) {
-                            val speedPath = Path()
-                            val fillPath = Path()
-
-                            samples.forEachIndexed { i, s ->
-                                val x = i * stepX
-                                val normalizedSpeed = (s.speedTokSec / maxSpeed).coerceIn(0f, 1f)
-                                val y = height - (normalizedSpeed * height)
-
-                                if (i == 0) {
-                                    speedPath.moveTo(x, y)
-                                    fillPath.moveTo(x, height)
-                                    fillPath.lineTo(x, y)
-                                } else {
-                                    speedPath.lineTo(x, y)
-                                    fillPath.lineTo(x, y)
-                                }
-
-                                if (i == count - 1) {
-                                    fillPath.lineTo(x, height)
-                                    fillPath.close()
-                                }
-                            }
-
-                            // Gradient Fill under speed line
-                            drawPath(
-                                path = fillPath,
-                                brush = Brush.verticalGradient(
-                                    colors = listOf(Color(0xFF38BDF8).copy(alpha = 0.25f), Color.Transparent)
+                            // Draw Grid Lines
+                            val gridLines = 4
+                            for (i in 0..gridLines) {
+                                val y = height * (i.toFloat() / gridLines)
+                                drawLine(
+                                    color = Color(0xFF1E293B),
+                                    start = Offset(0f, y),
+                                    end = Offset(width, y),
+                                    strokeWidth = 1f
                                 )
-                            )
-
-                            // Speed Line Stroke
-                            drawPath(
-                                path = speedPath,
-                                color = Color(0xFF38BDF8),
-                                style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round)
-                            )
-                        }
-
-                        // 2. Draw RAM Usage Line (Green)
-                        if (chartMode == ChartViewMode.MEMORY || chartMode == ChartViewMode.DUAL) {
-                            val ramPath = Path()
-                            val fillRamPath = Path()
-
-                            samples.forEachIndexed { i, s ->
-                                val x = i * stepX
-                                val normalizedRam = (s.ramUsedMb.toFloat() / maxRam).coerceIn(0f, 1f)
-                                val y = height - (normalizedRam * height)
-
-                                if (i == 0) {
-                                    ramPath.moveTo(x, y)
-                                    fillRamPath.moveTo(x, height)
-                                    fillRamPath.lineTo(x, y)
-                                } else {
-                                    ramPath.lineTo(x, y)
-                                    fillRamPath.lineTo(x, y)
-                                }
-
-                                if (i == count - 1) {
-                                    fillRamPath.lineTo(x, height)
-                                    fillRamPath.close()
-                                }
                             }
 
-                            if (chartMode == ChartViewMode.MEMORY) {
+                            val count = samples.size
+                            val stepX = width / (count - 1).coerceAtLeast(1)
+
+                            // 1. Draw Speed Line (Cyan)
+                            if (chartMode == ChartViewMode.SPEED || chartMode == ChartViewMode.DUAL) {
+                                val speedPath = Path()
+                                val fillPath = Path()
+
+                                samples.forEachIndexed { i, s ->
+                                    val x = i * stepX
+                                    val normalizedSpeed = (s.speedTokSec / maxSpeed).coerceIn(0f, 1f)
+                                    val y = height - (normalizedSpeed * height)
+
+                                    if (i == 0) {
+                                        speedPath.moveTo(x, y)
+                                        fillPath.moveTo(x, height)
+                                        fillPath.lineTo(x, y)
+                                    } else {
+                                        speedPath.lineTo(x, y)
+                                        fillPath.lineTo(x, y)
+                                    }
+
+                                    if (i == count - 1) {
+                                        fillPath.lineTo(x, height)
+                                        fillPath.close()
+                                    }
+                                }
+
                                 drawPath(
-                                    path = fillRamPath,
+                                    path = fillPath,
                                     brush = Brush.verticalGradient(
-                                        colors = listOf(Color(0xFF4ADE80).copy(alpha = 0.25f), Color.Transparent)
+                                        colors = listOf(Color(0xFF38BDF8).copy(alpha = 0.25f), Color.Transparent)
                                     )
                                 )
+
+                                drawPath(
+                                    path = speedPath,
+                                    color = Color(0xFF38BDF8),
+                                    style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round)
+                                )
                             }
 
-                            drawPath(
-                                path = ramPath,
-                                color = Color(0xFF4ADE80),
-                                style = Stroke(width = 2.5.dp.toPx(), cap = StrokeCap.Round)
-                            )
-                        }
+                            // 2. Draw RAM Usage Line (Green)
+                            if (chartMode == ChartViewMode.MEMORY || chartMode == ChartViewMode.DUAL) {
+                                val ramPath = Path()
+                                val fillRamPath = Path()
 
-                        // Selected point indicator crosshair
-                        selectedSampleIndex?.let { idx ->
-                            if (idx in samples.indices) {
-                                val s = samples[idx]
-                                val x = idx * stepX
-                                drawLine(
-                                    color = Color.White.copy(alpha = 0.5f),
-                                    start = Offset(x, 0f),
-                                    end = Offset(x, height),
-                                    strokeWidth = 1.5f
+                                samples.forEachIndexed { i, s ->
+                                    val x = i * stepX
+                                    val normalizedRam = (s.ramUsedMb.toFloat() / maxRam).coerceIn(0f, 1f)
+                                    val y = height - (normalizedRam * height)
+
+                                    if (i == 0) {
+                                        ramPath.moveTo(x, y)
+                                        fillRamPath.moveTo(x, height)
+                                        fillRamPath.lineTo(x, y)
+                                    } else {
+                                        ramPath.lineTo(x, y)
+                                        fillRamPath.lineTo(x, y)
+                                    }
+
+                                    if (i == count - 1) {
+                                        fillRamPath.lineTo(x, height)
+                                        fillRamPath.close()
+                                    }
+                                }
+
+                                if (chartMode == ChartViewMode.MEMORY) {
+                                    drawPath(
+                                        path = fillRamPath,
+                                        brush = Brush.verticalGradient(
+                                            colors = listOf(Color(0xFF4ADE80).copy(alpha = 0.25f), Color.Transparent)
+                                        )
+                                    )
+                                }
+
+                                drawPath(
+                                    path = ramPath,
+                                    color = Color(0xFF4ADE80),
+                                    style = Stroke(width = 2.5.dp.toPx(), cap = StrokeCap.Round)
                                 )
-                                val normSpeed = (s.speedTokSec / maxSpeed).coerceIn(0f, 1f)
-                                val speedY = height - (normSpeed * height)
-                                drawCircle(
-                                    color = Color(0xFF38BDF8),
-                                    radius = 5.dp.toPx(),
-                                    center = Offset(x, speedY)
-                                )
+                            }
+
+                            // Selected point indicator crosshair
+                            selectedSampleIndex?.let { idx ->
+                                if (idx in samples.indices) {
+                                    val s = samples[idx]
+                                    val x = idx * stepX
+                                    drawLine(
+                                        color = Color.White.copy(alpha = 0.5f),
+                                        start = Offset(x, 0f),
+                                        end = Offset(x, height),
+                                        strokeWidth = 1.5f
+                                    )
+                                    val normSpeed = (s.speedTokSec / maxSpeed).coerceIn(0f, 1f)
+                                    val speedY = height - (normSpeed * height)
+                                    drawCircle(
+                                        color = Color(0xFF38BDF8),
+                                        radius = 5.dp.toPx(),
+                                        center = Offset(x, speedY)
+                                    )
+                                }
                             }
                         }
                     }
@@ -482,29 +530,19 @@ fun PerformanceDashboard(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(Color(0xFF38BDF8)))
                     Spacer(modifier = Modifier.width(4.dp))
-                    Text("Token Speed (tok/s)", fontSize = 10.sp, color = Color(0xFF94A3B8))
+                    Text("TPS (Speed)", fontSize = 10.sp, color = Color(0xFF94A3B8))
 
                     Spacer(modifier = Modifier.width(12.dp))
 
                     Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(Color(0xFF4ADE80)))
                     Spacer(modifier = Modifier.width(4.dp))
-                    Text("RAM Footprint (MB)", fontSize = 10.sp, color = Color(0xFF94A3B8))
+                    Text("RAM (MB)", fontSize = 10.sp, color = Color(0xFF94A3B8))
                 }
 
-                selectedSampleIndex?.let { idx ->
-                    val sample = samples.getOrNull(idx)
-                    if (sample != null) {
-                        Text(
-                            text = "[${sample.timeLabel}] ${"%.1f".format(sample.speedTokSec)} tok/s • ${sample.ramUsedMb}MB",
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White
-                        )
-                    }
-                } ?: Text(
-                    text = "Tap graph for point data",
+                Text(
+                    text = if (engineMode == ChartEngineMode.D3_VECTOR) "D3.js SVG Active" else "Native Canvas",
                     fontSize = 9.sp,
-                    color = Color.Gray
+                    color = Color(0xFF818CF8)
                 )
             }
         }
@@ -522,9 +560,9 @@ private fun StatCard(
 ) {
     Box(
         modifier = modifier
-            .background(Color(0xFF1E293B), shape = RoundedCornerShape(12.dp))
-            .border(1.dp, Color(0xFF334155), shape = RoundedCornerShape(12.dp))
-            .padding(12.dp)
+            .background(Color(0xFF1E293B).copy(alpha = 0.7f), shape = RoundedCornerShape(12.dp))
+            .border(0.5.dp, Color.White.copy(alpha = 0.1f), shape = RoundedCornerShape(12.dp))
+            .padding(10.dp)
     ) {
         Column {
             Row(
@@ -542,13 +580,13 @@ private fun StatCard(
                     imageVector = icon,
                     contentDescription = null,
                     tint = accentColor,
-                    modifier = Modifier.size(16.dp)
+                    modifier = Modifier.size(15.dp)
                 )
             }
             Spacer(modifier = Modifier.height(4.dp))
             Text(
                 text = value,
-                fontSize = 18.sp,
+                fontSize = 17.sp,
                 fontWeight = FontWeight.ExtraBold,
                 fontFamily = FontFamily.Monospace,
                 color = accentColor

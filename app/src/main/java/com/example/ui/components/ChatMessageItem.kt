@@ -9,25 +9,38 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.engine.agent.AgentParser
+import com.example.engine.agent.AgentStepStatus
 import com.example.util.ReasoningParser
 
 /**
  * Chat message item representing either a user prompt or an AI response bubble.
- * Integrates ThinkingProcessCard for reasoning traces (<think>...</think>).
+ * Integrates ThinkingProcessCard for reasoning traces (<think>...</think>)
+ * and AgentToolExecutionCard for Agent Tool Calls (<tool_call>...</tool_call>).
  *
  * @param sender Sender indicator (e.g., "User", "AI", "Agent").
  * @param content Raw content text.
@@ -51,7 +64,7 @@ fun ChatMessageItem(
     val haptic = LocalHapticFeedback.current
 
     if (isUser) {
-        // User Message Bubble
+        // User Message Bubble - Sleek Glassmorphic Surface
         Row(
             modifier = modifier
                 .fillMaxWidth()
@@ -59,48 +72,82 @@ fun ChatMessageItem(
             horizontalArrangement = Arrangement.End
         ) {
             Surface(
-                color = androidx.compose.ui.graphics.Color(0xFF6366F1).copy(alpha = 0.85f),
+                color = Color(0xFF6366F1).copy(alpha = 0.85f),
                 shape = RoundedCornerShape(18.dp, 18.dp, 4.dp, 18.dp),
-                border = BorderStroke(0.5.dp, androidx.compose.ui.graphics.Color.White.copy(alpha = 0.2f)),
+                border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.2f)),
                 modifier = Modifier.widthIn(max = 300.dp)
             ) {
                 Text(
                     text = content,
                     fontSize = 13.sp,
-                    color = androidx.compose.ui.graphics.Color.White,
+                    color = Color.White,
                     modifier = Modifier.padding(12.dp)
                 )
             }
         }
     } else {
-        // AI Response Message Bubble with Thinking/Reasoning support
-        val parsed = ReasoningParser.parse(content)
+        // AI / Agent Response Message Bubble with Thinking and Tool Calls support
+        val parsedReasoning = ReasoningParser.parse(content)
+        val parsedAgent = AgentParser.parse(parsedReasoning.finalAnswerText)
 
         Column(
             modifier = modifier
                 .fillMaxWidth()
                 .padding(vertical = 4.dp)
         ) {
+            // Sender Badge for Agent or Special Model
+            if (sender.equals("Agent", ignoreCase = true)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(bottom = 4.dp, start = 4.dp)
+                ) {
+                    AgentActiveStatusPill(
+                        isRunning = isStreaming,
+                        label = if (isStreaming) "Agent Executing" else "Autonomous Agent"
+                    )
+                }
+            }
+
             // 1. Thinking / Reasoning Process Card (Only shown if thinkingText is present or streaming)
-            if (parsed.thinkingText.isNotEmpty() || parsed.isCurrentlyThinking) {
+            if (parsedReasoning.thinkingText.isNotEmpty() || parsedReasoning.isCurrentlyThinking) {
                 ThinkingProcessCard(
-                    thinkingText = parsed.thinkingText,
-                    isCurrentlyThinking = parsed.isCurrentlyThinking,
-                    isThinkingFinished = parsed.isThinkingFinished
+                    thinkingText = parsedReasoning.thinkingText,
+                    isCurrentlyThinking = parsedReasoning.isCurrentlyThinking,
+                    isThinkingFinished = parsedReasoning.isThinkingFinished
                 )
                 Spacer(modifier = Modifier.height(6.dp))
             }
 
-            // 2. Main AI Response Content (Display finalAnswerText below thinking card)
-            if (parsed.finalAnswerText.isNotEmpty() || !parsed.isCurrentlyThinking) {
+            // 2. Agent Tool Calls (Rendered as Glassmorphic Tool Cards)
+            if (parsedAgent.toolCalls.isNotEmpty()) {
+                parsedAgent.toolCalls.forEach { toolCall ->
+                    AgentToolExecutionCard(
+                        toolCall = toolCall,
+                        status = if (isStreaming) AgentStepStatus.IN_PROGRESS else AgentStepStatus.COMPLETED,
+                        observation = "Executed action for ${toolCall.filename ?: toolCall.workspaceName ?: "workspace"}"
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                }
+            }
+
+            // 3. Main AI Response Content
+            val displayText = parsedAgent.cleanText.ifBlank {
+                if (parsedAgent.toolCalls.isEmpty() && parsedReasoning.thinkingText.isEmpty()) {
+                    parsedReasoning.finalAnswerText
+                } else {
+                    ""
+                }
+            }
+
+            if (displayText.isNotEmpty() || (!parsedReasoning.isCurrentlyThinking && parsedAgent.toolCalls.isEmpty())) {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(containerColor = androidx.compose.ui.graphics.Color(0xFF1E293B).copy(alpha = 0.7f)),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B).copy(alpha = 0.7f)),
                     shape = RoundedCornerShape(16.dp),
-                    border = BorderStroke(0.5.dp, androidx.compose.ui.graphics.Color.White.copy(alpha = 0.12f))
+                    border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.12f))
                 ) {
                     Column(modifier = Modifier.padding(12.dp)) {
-                        val segments = parseResponseSegments(parsed.finalAnswerText)
+                        val segments = parseResponseSegments(displayText)
                         segments.forEach { segment ->
                             if (segment.isCodeBlock) {
                                 CodeInjectionBlockView(
@@ -118,7 +165,7 @@ fun ChatMessageItem(
                                 Text(
                                     text = segment.text,
                                     fontSize = 13.sp,
-                                    color = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.95f),
+                                    color = Color.White.copy(alpha = 0.95f),
                                     lineHeight = 18.sp
                                 )
                                 Spacer(modifier = Modifier.height(4.dp))

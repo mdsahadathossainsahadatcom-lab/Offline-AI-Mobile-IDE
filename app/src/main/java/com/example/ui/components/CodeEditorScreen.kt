@@ -109,11 +109,17 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.ui.theme.SyntaxAttribute
 import com.example.ui.theme.SyntaxComment
+import com.example.ui.theme.SyntaxEntity
+import com.example.ui.theme.SyntaxFunction
 import com.example.ui.theme.SyntaxKeyword
 import com.example.ui.theme.SyntaxNumber
+import com.example.ui.theme.SyntaxOperator
+import com.example.ui.theme.SyntaxRegex
 import com.example.ui.theme.SyntaxSelector
 import com.example.ui.theme.SyntaxString
 import com.example.ui.theme.SyntaxTag
+import com.example.ui.theme.SyntaxType
+import com.example.ui.theme.SyntaxVariable
 
 @Composable
 fun CodeEditorScreen(
@@ -1854,89 +1860,241 @@ fun highlightSyntax(
 }
 
 private fun highlightHtml(code: String, spans: MutableList<StyleSpan>) {
+    // 1. Comments: <!-- ... -->
     Regex("<!--[\\s\\S]*?-->").findAll(code).forEach { m ->
         spans.add(StyleSpan(m.range.first, m.range.last + 1, SpanStyle(color = SyntaxComment, fontStyle = FontStyle.Italic)))
     }
 
-    Regex("</?[a-zA-Z0-9-]+[^>]*>").findAll(code).forEach { match ->
-        val tagStr = match.value
-        val start = match.range.first
+    // 2. Doctype declaration: <!DOCTYPE html>
+    Regex("<!(?i:DOCTYPE)[^>]*>").findAll(code).forEach { m ->
+        spans.add(StyleSpan(m.range.first, m.range.last + 1, SpanStyle(color = SyntaxKeyword, fontWeight = FontWeight.Bold)))
+    }
 
-        Regex("</?([a-zA-Z0-9-]+)").find(tagStr)?.let { tagMatch ->
-            val tagStart = start + tagMatch.range.first
-            val tagEnd = start + tagMatch.range.last + 1
+    // 3. HTML Entities: &amp;, &#123;, &quot;, &lt;, &gt;, etc.
+    Regex("&[a-zA-Z0-9#]+;").findAll(code).forEach { m ->
+        spans.add(StyleSpan(m.range.first, m.range.last + 1, SpanStyle(color = SyntaxEntity, fontWeight = FontWeight.SemiBold)))
+    }
+
+    // 4. Tags with embedded attributes, quotes, event handlers, and expressions
+    Regex("</?[a-zA-Z0-9:-]+(?:\\s+[^>]*)?/?>").findAll(code).forEach { tagMatch ->
+        val tagFull = tagMatch.value
+        val baseOffset = tagMatch.range.first
+
+        // Tag brackets & Tag Name: e.g. <div, </span, <path, <circle, />
+        Regex("</?([a-zA-Z0-9:-]+)").find(tagFull)?.let { tnMatch ->
+            val tagStart = baseOffset + tnMatch.range.first
+            val tagEnd = baseOffset + tnMatch.range.last + 1
             spans.add(StyleSpan(tagStart, tagEnd, SpanStyle(color = SyntaxTag, fontWeight = FontWeight.Bold)))
         }
 
-        Regex("([a-zA-Z0-9-]+)=").findAll(tagStr).forEach { attrMatch ->
-            val attrStart = start + attrMatch.groups[1]!!.range.first
-            val attrEnd = start + attrMatch.groups[1]!!.range.last + 1
-            spans.add(StyleSpan(attrStart, attrEnd, SpanStyle(color = SyntaxAttribute)))
+        // Closing bracket > or />
+        if (tagFull.endsWith("/>")) {
+            val closeStart = baseOffset + tagFull.length - 2
+            spans.add(StyleSpan(closeStart, baseOffset + tagFull.length, SpanStyle(color = SyntaxTag, fontWeight = FontWeight.Bold)))
+        } else if (tagFull.endsWith(">")) {
+            val closeStart = baseOffset + tagFull.length - 1
+            spans.add(StyleSpan(closeStart, baseOffset + tagFull.length, SpanStyle(color = SyntaxTag, fontWeight = FontWeight.Bold)))
         }
 
-        Regex("\"[^\"]*\"|'[^']*'").findAll(tagStr).forEach { valMatch ->
-            val valStart = start + valMatch.range.first
-            val valEnd = start + valMatch.range.last + 1
-            spans.add(StyleSpan(valStart, valEnd, SpanStyle(color = SyntaxString)))
+        // Tag attributes: e.g. class, id, onClick, style, src, href, @click, v-model, :bind
+        Regex("([@:a-zA-Z0-9_-]+)\\s*=").findAll(tagFull).forEach { attrMatch ->
+            attrMatch.groups[1]?.let { g ->
+                val attrStart = baseOffset + g.range.first
+                val attrEnd = baseOffset + g.range.last + 1
+                val attrName = g.value
+                val isEventHandler = attrName.startsWith("on") || attrName.startsWith("@") || attrName.startsWith("v-")
+                val attrColor = if (isEventHandler) SyntaxVariable else SyntaxAttribute
+                spans.add(StyleSpan(attrStart, attrEnd, SpanStyle(color = attrColor, fontWeight = if (isEventHandler) FontWeight.SemiBold else FontWeight.Normal)))
+            }
+        }
+
+        // Boolean attributes (without =): e.g. disabled, checked, required, autofocus
+        Regex("(?<=\\s)([a-zA-Z0-9_-]+)(?=\\s|/?>)").findAll(tagFull).forEach { boolAttr ->
+            val bName = boolAttr.value
+            if (!bName.contains("=") && bName != "/" && bName != ">" && !bName.startsWith("<")) {
+                val bStart = baseOffset + boolAttr.range.first
+                val bEnd = baseOffset + boolAttr.range.last + 1
+                spans.add(StyleSpan(bStart, bEnd, SpanStyle(color = SyntaxAttribute)))
+            }
+        }
+
+        // Attribute string values: "..." or '...'
+        Regex("\"[^\"]*\"|'[^']*'").findAll(tagFull).forEach { strMatch ->
+            val strStart = baseOffset + strMatch.range.first
+            val strEnd = baseOffset + strMatch.range.last + 1
+            spans.add(StyleSpan(strStart, strEnd, SpanStyle(color = SyntaxString)))
         }
     }
 }
 
 private fun highlightCss(code: String, spans: MutableList<StyleSpan>) {
+    // 1. Comments: /* ... */
     Regex("/\\*[\\s\\S]*?\\*/").findAll(code).forEach { m ->
         spans.add(StyleSpan(m.range.first, m.range.last + 1, SpanStyle(color = SyntaxComment, fontStyle = FontStyle.Italic)))
     }
 
+    // 2. Strings: "..." or '...'
     Regex("\"[^\"]*\"|'[^']*'").findAll(code).forEach { m ->
         spans.add(StyleSpan(m.range.first, m.range.last + 1, SpanStyle(color = SyntaxString)))
     }
 
-    Regex("([.#]?[a-zA-Z0-9_-]+|\\*|:[a-zA-Z-]+)\\s*\\{").findAll(code).forEach { m ->
-        m.groups[1]?.let { g ->
-            spans.add(StyleSpan(g.range.first, g.range.last + 1, SpanStyle(color = SyntaxSelector, fontWeight = FontWeight.Bold)))
-        }
+    // 3. At-rules & Directives: @media, @keyframes, @import, @charset, @supports, @font-face, etc.
+    Regex("@[a-zA-Z0-9_-]+").findAll(code).forEach { m ->
+        spans.add(StyleSpan(m.range.first, m.range.last + 1, SpanStyle(color = SyntaxKeyword, fontWeight = FontWeight.Bold)))
     }
 
+    // 4. CSS Custom Properties / Variables: --primary-color, --bg-alpha
+    Regex("--[a-zA-Z0-9_-]+").findAll(code).forEach { m ->
+        spans.add(StyleSpan(m.range.first, m.range.last + 1, SpanStyle(color = SyntaxVariable, fontWeight = FontWeight.SemiBold)))
+    }
+
+    // 5. CSS Functions: var(...), rgb(...), rgba(...), hsl(...), calc(...), linear-gradient(...), url(...)
+    Regex("\\b(var|rgb|rgba|hsl|hsla|calc|min|max|clamp|url|linear-gradient|radial-gradient|conic-gradient|translate|scale|rotate|blur)\\s*(?=\\()").findAll(code).forEach { m ->
+        spans.add(StyleSpan(m.range.first, m.range.last + 1, SpanStyle(color = SyntaxFunction, fontWeight = FontWeight.SemiBold)))
+    }
+
+    // 6. Selectors before curly braces: e.g. .header, #app, button:hover, [data-theme], h1 > p
+    Regex("([.#]?[a-zA-Z0-9_*-]+|\\[[^\\]]+\\]|::?[a-zA-Z-]+)\\s*(?=[,{])").findAll(code).forEach { m ->
+        val selectorText = m.value.trim()
+        val color = when {
+            selectorText.startsWith("#") -> SyntaxEntity // ID Selector (Amber)
+            selectorText.startsWith(".") -> SyntaxSelector // Class Selector (Yellow)
+            selectorText.startsWith(":") -> SyntaxVariable // Pseudo-classes / elements (Pink)
+            else -> SyntaxTag // Tag / Universal / Attribute selector (Rose)
+        }
+        spans.add(StyleSpan(m.range.first, m.range.last + 1, SpanStyle(color = color, fontWeight = FontWeight.SemiBold)))
+    }
+
+    // 7. Property names: e.g. background-color:, font-size:, display:, margin-top:
     Regex("([a-zA-Z-]+)\\s*:").findAll(code).forEach { m ->
         m.groups[1]?.let { g ->
             spans.add(StyleSpan(g.range.first, g.range.last + 1, SpanStyle(color = SyntaxAttribute)))
         }
     }
 
-    Regex("\\b\\d+(\\.\\d+)?(px|rem|em|vh|vw|%|s|ms)?\\b").findAll(code).forEach { m ->
+    // 8. Hex color codes: #fff, #1e293b, #38bdf880
+    Regex("#([0-9a-fA-F]{3,8})\\b").findAll(code).forEach { m ->
+        spans.add(StyleSpan(m.range.first, m.range.last + 1, SpanStyle(color = SyntaxNumber, fontWeight = FontWeight.SemiBold)))
+    }
+
+    // 9. Numeric dimensions & units: 16px, 1.5rem, 100vh, 50%, 0.3s, 200ms, 45deg
+    Regex("\\b-?\\d+(\\.\\d+)?(px|rem|em|vh|vw|vmin|vmax|%|s|ms|deg|rad|turn|fr|pt)?\\b").findAll(code).forEach { m ->
         spans.add(StyleSpan(m.range.first, m.range.last + 1, SpanStyle(color = SyntaxNumber)))
+    }
+
+    // 10. CSS Keywords / Values: !important, flex, grid, absolute, relative, inherit, none, bold, transparent
+    val cssKeywords = setOf(
+        "!important", "flex", "grid", "block", "inline-block", "inline", "none", "hidden",
+        "absolute", "relative", "fixed", "sticky", "static", "auto", "inherit", "initial", "unset",
+        "bold", "normal", "italic", "underline", "center", "left", "right", "justify",
+        "cover", "contain", "border-box", "content-box", "solid", "dashed", "dotted", "transparent",
+        "pointer", "default", "nowrap", "wrap", "column", "row", "space-between", "space-around"
+    )
+    Regex("\\b(!important|[a-zA-Z-]+)\\b").findAll(code).forEach { m ->
+        if (cssKeywords.contains(m.value.lowercase())) {
+            spans.add(StyleSpan(m.range.first, m.range.last + 1, SpanStyle(color = SyntaxKeyword, fontWeight = FontWeight.SemiBold)))
+        }
     }
 }
 
 private fun highlightJs(code: String, spans: MutableList<StyleSpan>) {
+    // 1. Comments: // line or /* multi-line */
     Regex("//.*$|/\\*[\\s\\S]*?\\*/", RegexOption.MULTILINE).findAll(code).forEach { m ->
         spans.add(StyleSpan(m.range.first, m.range.last + 1, SpanStyle(color = SyntaxComment, fontStyle = FontStyle.Italic)))
     }
 
-    Regex("\"[^\"]*\"|'[^']*'|`[^`]*`").findAll(code).forEach { m ->
-        spans.add(StyleSpan(m.range.first, m.range.last + 1, SpanStyle(color = SyntaxString)))
+    // 2. Regular Expression Literals: /pattern/flags
+    Regex("(?<=[=(,:\\[!]\\s*)/(?![/*])(?:\\\\/|[^/\\r\\n])+/[gimsuy]*").findAll(code).forEach { m ->
+        spans.add(StyleSpan(m.range.first, m.range.last + 1, SpanStyle(color = SyntaxRegex)))
     }
 
-    val keywords = setOf("const", "let", "var", "function", "async", "await", "return", "if", "else", "for", "while", "class", "import", "export", "from", "new", "this", "try", "catch", "throw", "typeof", "instanceof", "of", "in", "switch", "case", "default", "break", "continue", "yield")
-    Regex("\\b[a-zA-Z_][a-zA-Z0-9_]*\\b").findAll(code).forEach { m ->
-        val word = m.value
-        if (keywords.contains(word)) {
-            spans.add(StyleSpan(m.range.first, m.range.last + 1, SpanStyle(color = SyntaxKeyword, fontWeight = FontWeight.Bold)))
-        } else if (setOf("true", "false", "null", "undefined", "NaN").contains(word)) {
-            spans.add(StyleSpan(m.range.first, m.range.last + 1, SpanStyle(color = SyntaxNumber, fontWeight = FontWeight.Bold)))
-        } else if (setOf("console", "document", "window", "Math", "JSON", "Array", "Object", "Promise", "fetch", "alert", "showToast", "setTimeout", "setInterval").contains(word)) {
-            spans.add(StyleSpan(m.range.first, m.range.last + 1, SpanStyle(color = SyntaxTag)))
+    // 3. Strings & Template Literals: "...", '...', `...`
+    Regex("\"(?:\\\\\"|[^\"])*\"|'(?:\\\\'|[^'])*'|`(?:\\\\`|[^`])*`").findAll(code).forEach { m ->
+        val strVal = m.value
+        val baseOffset = m.range.first
+        spans.add(StyleSpan(baseOffset, baseOffset + strVal.length, SpanStyle(color = SyntaxString)))
+
+        // Interpolated expressions inside template literals `${expr}`
+        if (strVal.startsWith("`")) {
+            Regex("\\$\\{([^}]+)\\}").findAll(strVal).forEach { interpMatch ->
+                val interpStart = baseOffset + interpMatch.range.first
+                val interpEnd = baseOffset + interpMatch.range.last + 1
+                spans.add(StyleSpan(interpStart, interpEnd, SpanStyle(color = SyntaxVariable, fontWeight = FontWeight.Bold)))
+            }
         }
     }
 
-    Regex("\\b\\d+(\\.\\d+)?\\b").findAll(code).forEach { m ->
+    // 4. JavaScript / TypeScript Core Keywords
+    val jsKeywords = setOf(
+        "const", "let", "var", "function", "async", "await", "return", "if", "else", "for", "while",
+        "do", "switch", "case", "default", "break", "continue", "try", "catch", "finally", "throw",
+        "class", "extends", "super", "this", "new", "import", "export", "from", "as", "default",
+        "typeof", "instanceof", "in", "of", "delete", "void", "yield", "debugger"
+    )
+
+    // TypeScript types & declaration keywords
+    val tsKeywords = setOf(
+        "type", "interface", "enum", "namespace", "declare", "abstract", "implements",
+        "readonly", "private", "public", "protected", "override", "keyof", "infer", "never",
+        "unknown", "any", "string", "number", "boolean", "symbol", "bigint"
+    )
+
+    // Built-in Objects & Global Web APIs
+    val builtInGlobals = setOf(
+        "console", "window", "document", "globalThis", "Math", "JSON", "Date", "Array", "Object",
+        "String", "Number", "Boolean", "RegExp", "Promise", "Map", "Set", "WeakMap", "WeakSet",
+        "Error", "TypeError", "SyntaxError", "URL", "URLSearchParams", "fetch", "Response", "Request",
+        "Headers", "FormData", "Blob", "File", "FileReader", "AbortController", "localStorage",
+        "sessionStorage", "setTimeout", "clearTimeout", "setInterval", "clearInterval", "requestAnimationFrame",
+        "alert", "confirm", "prompt", "CustomEvent", "Event", "HTMLElement", "Element", "Node"
+    )
+
+    Regex("\\b[a-zA-Z_$][a-zA-Z0-9_$]*\\b").findAll(code).forEach { m ->
+        val word = m.value
+        when {
+            jsKeywords.contains(word) -> {
+                spans.add(StyleSpan(m.range.first, m.range.last + 1, SpanStyle(color = SyntaxKeyword, fontWeight = FontWeight.Bold)))
+            }
+            tsKeywords.contains(word) -> {
+                spans.add(StyleSpan(m.range.first, m.range.last + 1, SpanStyle(color = SyntaxType, fontWeight = FontWeight.SemiBold)))
+            }
+            builtInGlobals.contains(word) -> {
+                spans.add(StyleSpan(m.range.first, m.range.last + 1, SpanStyle(color = SyntaxTag, fontWeight = FontWeight.SemiBold)))
+            }
+            word in setOf("true", "false", "null", "undefined", "NaN", "Infinity") -> {
+                spans.add(StyleSpan(m.range.first, m.range.last + 1, SpanStyle(color = SyntaxNumber, fontWeight = FontWeight.Bold)))
+            }
+        }
+    }
+
+    // 5. Function Declarations & Calls: e.g. myFunction(...), renderApp()
+    Regex("\\b([a-zA-Z_$][a-zA-Z0-9_$]*)\\s*(?=\\()").findAll(code).forEach { m ->
+        m.groups[1]?.let { g ->
+            val fnName = g.value
+            if (!jsKeywords.contains(fnName)) {
+                spans.add(StyleSpan(g.range.first, g.range.last + 1, SpanStyle(color = SyntaxFunction, fontWeight = FontWeight.SemiBold)))
+            }
+        }
+    }
+
+    // 6. Object Property Access: e.g. obj.property, this.state, event.target
+    Regex("\\.([a-zA-Z_$][a-zA-Z0-9_$]*)").findAll(code).forEach { m ->
+        m.groups[1]?.let { g ->
+            spans.add(StyleSpan(g.range.first, g.range.last + 1, SpanStyle(color = SyntaxAttribute)))
+        }
+    }
+
+    // 7. Numbers (Decimal, Hex, Binary, Octal, BigInt)
+    Regex("\\b(0x[0-9a-fA-F]+|0b[01]+|0o[0-7]+|\\d+(\\.\\d+)?([eE][+-]?\\d+)?n?)\\b").findAll(code).forEach { m ->
         spans.add(StyleSpan(m.range.first, m.range.last + 1, SpanStyle(color = SyntaxNumber)))
     }
 
-    Regex("=>|===|!==|&&|\\|\\||\\?|:").findAll(code).forEach { m ->
-        spans.add(StyleSpan(m.range.first, m.range.last + 1, SpanStyle(color = SyntaxAttribute)))
+    // 8. Operators & Punctuation: =>, ===, !==, &&, ||, ??, ?., +=, -=, etc.
+    Regex("=>|===|!==|==|!=|<=|>=|&&|\\|\\||\\?\\?|\\?\\.|\\+=|-=|\\*=|/=|%=|\\+\\+|--|[+\\-*/%<>&|^~!=?]").findAll(code).forEach { m ->
+        spans.add(StyleSpan(m.range.first, m.range.last + 1, SpanStyle(color = SyntaxOperator)))
     }
 }
+
 
 private fun highlightJson(code: String, spans: MutableList<StyleSpan>) {
     Regex("\"([^\"]+)\"\\s*:").findAll(code).forEach { m ->

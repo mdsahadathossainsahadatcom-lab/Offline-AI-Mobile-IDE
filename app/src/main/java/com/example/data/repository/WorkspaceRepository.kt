@@ -11,8 +11,10 @@ import com.example.data.db.FileEntity
 
 import com.example.data.db.ModelProfileEntity
 import com.example.data.db.ProjectEntity
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withContext
 import java.io.File
 
 class WorkspaceRepository(private val context: Context) {
@@ -145,7 +147,7 @@ class WorkspaceRepository(private val context: Context) {
         description: String,
         theme: String = "NIGHT",
         initialFiles: Map<String, String> = emptyMap()
-    ): Long {
+    ): Long = withContext(Dispatchers.IO) {
         val project = ProjectEntity(
             title = title,
             description = description,
@@ -165,10 +167,10 @@ class WorkspaceRepository(private val context: Context) {
             fileDao.insertFiles(fileEntities)
         }
 
-        return projectId
+        projectId
     }
 
-    suspend fun saveFile(projectId: Long, path: String, content: String) {
+    suspend fun saveFile(projectId: Long, path: String, content: String) = withContext(Dispatchers.IO) {
         val existing = fileDao.getFileByPath(projectId, path)
         if (existing != null) {
             fileDao.updateFile(existing.copy(content = content, updatedAt = System.currentTimeMillis()))
@@ -186,7 +188,7 @@ class WorkspaceRepository(private val context: Context) {
         writeToStorageFile(projectId, path, content)
     }
 
-    suspend fun saveMultipleFiles(projectId: Long, files: Map<String, String>) {
+    suspend fun saveMultipleFiles(projectId: Long, files: Map<String, String>) = withContext(Dispatchers.IO) {
         files.forEach { (path, content) ->
             saveFile(projectId, path, content)
         }
@@ -197,12 +199,12 @@ class WorkspaceRepository(private val context: Context) {
         }
     }
 
-    suspend fun deleteFile(projectId: Long, path: String) {
+    suspend fun deleteFile(projectId: Long, path: String) = withContext(Dispatchers.IO) {
         fileDao.deleteFileByPath(projectId, path)
         deleteFromStorageFile(projectId, path)
     }
 
-    suspend fun deleteProject(project: ProjectEntity) {
+    suspend fun deleteProject(project: ProjectEntity) = withContext(Dispatchers.IO) {
         fileDao.deleteAllFilesForProject(project.id)
         chatHistoryDao.clearHistoryForProject(project.id)
         val sessions = chatSessionDao.getSessionsForProject(project.id).first()
@@ -218,7 +220,7 @@ class WorkspaceRepository(private val context: Context) {
         }
     }
 
-    suspend fun addChatHistory(projectId: Long, prompt: String, aiResponse: String, tokens: Int, speed: Float, modelUsed: String) {
+    suspend fun addChatHistory(projectId: Long, prompt: String, aiResponse: String, tokens: Int, speed: Float, modelUsed: String) = withContext(Dispatchers.IO) {
         chatHistoryDao.insertChat(
             ChatHistoryEntity(
                 projectId = projectId,
@@ -231,8 +233,8 @@ class WorkspaceRepository(private val context: Context) {
         )
     }
 
-    suspend fun saveModelProfile(model: ModelProfileEntity): Long {
-        return modelProfileDao.insertModel(model)
+    suspend fun saveModelProfile(model: ModelProfileEntity): Long = withContext(Dispatchers.IO) {
+        modelProfileDao.insertModel(model)
     }
 
     suspend fun addModelProfile(
@@ -243,7 +245,7 @@ class WorkspaceRepository(private val context: Context) {
         architecture: String,
         parameters: String,
         contextWindow: Int
-    ): Long {
+    ): Long = withContext(Dispatchers.IO) {
         modelProfileDao.clearSelection()
         val model = ModelProfileEntity(
             name = name,
@@ -255,14 +257,14 @@ class WorkspaceRepository(private val context: Context) {
             contextWindow = contextWindow,
             isSelected = true
         )
-        return modelProfileDao.insertModel(model)
+        modelProfileDao.insertModel(model)
     }
 
     suspend fun importGgufFileToStorage(
         context: Context,
         uri: Uri,
         onProgress: (Float, Long, Long) -> Unit
-    ): ModelProfileEntity {
+    ): ModelProfileEntity = withContext(Dispatchers.IO) {
         val contentResolver = context.contentResolver
         var displayName = "Model_${System.currentTimeMillis()}.gguf"
 
@@ -351,7 +353,7 @@ class WorkspaceRepository(private val context: Context) {
             contextWindow = metadata.contextWindow
         )
 
-        return ModelProfileEntity(
+        ModelProfileEntity(
             id = modelId,
             name = displayName,
             path = targetFile.absolutePath,
@@ -364,7 +366,7 @@ class WorkspaceRepository(private val context: Context) {
         )
     }
 
-    suspend fun deleteModelProfile(model: ModelProfileEntity) {
+    suspend fun deleteModelProfile(model: ModelProfileEntity) = withContext(Dispatchers.IO) {
         try {
             if (model.path.isNotBlank() && !model.path.startsWith("internal://")) {
                 val file = File(model.path)
@@ -378,16 +380,16 @@ class WorkspaceRepository(private val context: Context) {
         modelProfileDao.deleteModel(model)
     }
 
-    suspend fun renameModelProfile(id: Long, newName: String) {
+    suspend fun renameModelProfile(id: Long, newName: String) = withContext(Dispatchers.IO) {
         modelProfileDao.renameModel(id, newName)
     }
 
-    suspend fun selectModel(id: Long) {
+    suspend fun selectModel(id: Long) = withContext(Dispatchers.IO) {
         modelProfileDao.clearSelection()
         modelProfileDao.selectModel(id)
     }
 
-    suspend fun clearModelSelection() {
+    suspend fun clearModelSelection() = withContext(Dispatchers.IO) {
         modelProfileDao.clearSelection()
     }
 
@@ -426,8 +428,8 @@ class WorkspaceRepository(private val context: Context) {
         }
     }
 
-    suspend fun exportProjectToZip(projectId: Long): File? {
-        val project = projectDao.getProjectById(projectId) ?: return null
+    suspend fun exportProjectToZip(projectId: Long): File? = withContext(Dispatchers.IO) {
+        val project = projectDao.getProjectById(projectId) ?: return@withContext null
         val sourceDir = File(context.filesDir, "workspace_$projectId")
         if (!sourceDir.exists()) sourceDir.mkdirs()
 
@@ -454,10 +456,10 @@ class WorkspaceRepository(private val context: Context) {
         val safeTitle = project.title.replace(Regex("[^a-zA-Z0-9_-]"), "_")
         val zipFile = File(downloadsDir, "${safeTitle}_export.zip")
         com.example.util.FileUtils.zipDirectory(sourceDir, zipFile)
-        return zipFile
+        zipFile
     }
 
-    suspend fun importProjectFromZip(inputStream: java.io.InputStream, zipFileName: String): Long {
+    suspend fun importProjectFromZip(inputStream: java.io.InputStream, zipFileName: String): Long = withContext(Dispatchers.IO) {
         val cleanTitle = zipFileName.removeSuffix(".zip").replace("_", " ").ifBlank { "Imported Web Project" }
         val projectId = createProject(
             title = cleanTitle,
@@ -474,13 +476,13 @@ class WorkspaceRepository(private val context: Context) {
             saveFile(projectId, "index.html", "<!-- Unzipped Project -->\n<h1>$cleanTitle</h1>")
         }
 
-        return projectId
+        projectId
     }
 
-    suspend fun ensureDefaultDataCreated() {
+    suspend fun ensureDefaultDataCreated() = withContext(Dispatchers.IO) {
         val prefs = context.getSharedPreferences("app_settings", Context.MODE_PRIVATE)
         if (prefs.getBoolean("default_data_created", false)) {
-            return
+            return@withContext
         }
 
         val existingProjects = allProjects.first()

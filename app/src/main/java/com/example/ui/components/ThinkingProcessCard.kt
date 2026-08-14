@@ -156,3 +156,20 @@ fun ThinkingProcessCard(
         }
     }
 }
+
+/**
+ * Convenience overload accepting reasoningText and isThinking flags.
+ */
+@Composable
+fun ThinkingProcessCard(
+    reasoningText: String,
+    isThinking: Boolean = false,
+    modifier: Modifier = Modifier
+) {
+    ThinkingProcessCard(
+        thinkingText = reasoningText,
+        isCurrentlyThinking = isThinking,
+        isThinkingFinished = !isThinking && reasoningText.isNotBlank(),
+        modifier = modifier
+    )
+}

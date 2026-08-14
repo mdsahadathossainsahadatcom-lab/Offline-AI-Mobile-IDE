@@ -4,6 +4,8 @@ import androidx.compose.runtime.Immutable
 import android.content.Context
 import android.net.Uri
 import android.util.Log
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.io.InputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -37,6 +39,10 @@ object GgufHeaderParser {
         "command-r", "stablelm", "rwkv"
     )
 
+    suspend fun parseGgufUriAsync(context: Context, uri: Uri): GgufMetadataInfo = withContext(Dispatchers.IO) {
+        parseGgufUri(context, uri)
+    }
+
     fun parseGgufUri(context: Context, uri: Uri): GgufMetadataInfo {
         return try {
             val contentResolver = context.contentResolver
@@ -60,6 +66,14 @@ object GgufHeaderParser {
                 validationMessage = "File parsing exception: ${e.localizedMessage ?: "Unknown error"}"
             )
         }
+    }
+
+    suspend fun parseGgufHeaderAsync(
+        inputStream: InputStream,
+        totalSizeBytes: Long,
+        fileNameHint: String = ""
+    ): GgufMetadataInfo = withContext(Dispatchers.IO) {
+        parseGgufHeader(inputStream, totalSizeBytes, fileNameHint)
     }
 
     fun parseGgufHeader(inputStream: InputStream, totalSizeBytes: Long, fileNameHint: String = ""): GgufMetadataInfo {

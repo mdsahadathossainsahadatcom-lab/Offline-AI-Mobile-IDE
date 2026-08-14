@@ -48,11 +48,17 @@ val YellowOnSurface = Color(0xFFFEF3C7)    // Warm Cream
 val YellowAccent = Color(0xFFFBBF24)       // Golden Yellow
 
 // Syntax Highlighting Colors
-val SyntaxTag = Color(0xFFF43F5E)        // HTML Tags (Rose)
-val SyntaxAttribute = Color(0xFFFB923C)  // Attributes (Orange)
+val SyntaxTag = Color(0xFFF43F5E)        // HTML Tags / Directives (Rose)
+val SyntaxAttribute = Color(0xFFFB923C)  // Attributes / Properties / Keys (Orange)
 val SyntaxString = Color(0xFF4ADE80)     // Strings (Green)
-val SyntaxKeyword = Color(0xFF38BDF8)    // JS Keywords (Cyan)
-val SyntaxComment = Color(0xFF94A3B8)    // Comments (Slate)
-val SyntaxNumber = Color(0xFFA78BFA)     // Numbers (Purple)
-val SyntaxSelector = Color(0xFFFACC15)   // CSS Selectors (Yellow)
+val SyntaxKeyword = Color(0xFF38BDF8)    // JS / CSS Keywords & Control Flow (Cyan)
+val SyntaxComment = Color(0xFF94A3B8)    // Comments (Slate / Muted Gray)
+val SyntaxNumber = Color(0xFFA78BFA)     // Numbers / Units / Booleans (Purple)
+val SyntaxSelector = Color(0xFFFACC15)   // CSS Selectors / Classes / IDs (Yellow)
+val SyntaxFunction = Color(0xFF60A5FA)   // Functions / Methods (Soft Sky Blue)
+val SyntaxOperator = Color(0xFFE2E8F0)   // Operators / Punctuation (Light Slate)
+val SyntaxVariable = Color(0xFFF472B6)   // CSS Variables / JS Constants (Pink)
+val SyntaxRegex = Color(0xFFF87171)      // Regex literals (Red)
+val SyntaxType = Color(0xFF2DD4BF)       // Types / Interfaces (Teal)
+val SyntaxEntity = Color(0xFFFBBF24)     // HTML Entities & Char Codes (Amber)
 
