@@ -518,6 +518,7 @@ fun ModelManagerScreen(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Row(
+                                modifier = Modifier.weight(1f, fill = false),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(12.dp)
                             ) {
@@ -550,6 +551,8 @@ fun ModelManagerScreen(
                                     )
                                 }
                             }
+
+                            Spacer(modifier = Modifier.width(8.dp))
 
                             // RAM Usage Indicator Badge & Close Button
                             Row(

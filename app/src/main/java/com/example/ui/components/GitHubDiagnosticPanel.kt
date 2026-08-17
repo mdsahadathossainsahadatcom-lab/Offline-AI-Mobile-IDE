@@ -77,6 +77,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.util.GitHubApiLogEntry
@@ -734,7 +735,10 @@ private fun ScopeCheckItem(label: String, isGranted: Boolean) {
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            modifier = Modifier.weight(1f),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
             Icon(
                 imageVector = if (isGranted) Icons.Default.CheckCircle else Icons.Default.Warning,
                 contentDescription = label,
@@ -742,8 +746,9 @@ private fun ScopeCheckItem(label: String, isGranted: Boolean) {
                 modifier = Modifier.size(16.dp)
             )
             Spacer(modifier = Modifier.width(8.dp))
-            Text(label, fontSize = 11.sp, color = Color.White)
+            Text(label, fontSize = 11.sp, color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis)
         }
+        Spacer(modifier = Modifier.width(8.dp))
 
         Box(
             modifier = Modifier

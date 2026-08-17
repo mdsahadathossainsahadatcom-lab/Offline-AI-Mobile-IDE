@@ -6,6 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -121,6 +122,7 @@ fun GgufModelFileSystemCard(
                             OutlinedButton(
                                 onClick = onManageClick,
                                 shape = RoundedCornerShape(10.dp),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
                                 modifier = Modifier
                                     .heightIn(min = 36.dp)
                                     .wrapContentHeight()
@@ -132,7 +134,7 @@ fun GgufModelFileSystemCard(
                                     modifier = Modifier.size(14.dp)
                                 )
                                 Spacer(modifier = Modifier.width(4.dp))
-                                Text("Manage", fontSize = 11.sp)
+                                Text("Manage", fontSize = 11.sp, maxLines = 1)
                             }
                         }
 
@@ -140,6 +142,7 @@ fun GgufModelFileSystemCard(
                             Button(
                                 onClick = onImportClick,
                                 shape = RoundedCornerShape(10.dp),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
                                 modifier = Modifier
                                     .heightIn(min = 36.dp)
                                     .wrapContentHeight()
@@ -150,7 +153,7 @@ fun GgufModelFileSystemCard(
                                     modifier = Modifier.size(14.dp)
                                 )
                                 Spacer(modifier = Modifier.width(4.dp))
-                                Text("Import .gguf", fontSize = 11.sp)
+                                Text("Import .gguf", fontSize = 11.sp, maxLines = 1)
                             }
                         }
                     }

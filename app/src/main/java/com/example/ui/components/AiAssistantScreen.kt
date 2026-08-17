@@ -22,12 +22,14 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -406,7 +408,8 @@ fun AiAssistantScreen(
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(90.dp)
+                                .heightIn(max = 110.dp)
+                                .wrapContentHeight()
                                 .background(Color(0xFF090D16), shape = RoundedCornerShape(8.dp))
                                 .padding(8.dp)
                                 .verticalScroll(rememberScrollState())

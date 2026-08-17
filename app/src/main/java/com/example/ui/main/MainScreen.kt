@@ -27,7 +27,10 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -863,8 +866,9 @@ fun MainScreen(viewModel: IdeViewModel) {
                     Box(
                         modifier = Modifier
                             .align(Alignment.TopEnd)
-                            .padding(top = 50.dp, end = 12.dp)
-                            .width(320.dp)
+                            .padding(top = 10.dp, start = 12.dp, end = 12.dp)
+                            .fillMaxWidth()
+                            .widthIn(max = 380.dp)
                     ) {
                         DiagnosticPanel(
                             diagnosticState = diagnosticState,
@@ -947,19 +951,26 @@ fun MainScreen(viewModel: IdeViewModel) {
                             }
                         },
                         text = {
-                            GitHubDiagnosticPanel(
-                                activeProjectName = activeProject?.title ?: "Offline-AI-Mobile-IDE",
-                                projectFilesMap = filesMap,
-                                onClose = { showGitHubDiagnosticDialog = false },
-                                branches = branches,
-                                currentBranchName = currentBranch,
-                                onCreateBranch = { name, base -> viewModel.createBranch(name, base) },
-                                onSwitchBranch = { viewModel.switchBranch(it) },
-                                onDeleteBranch = { viewModel.deleteBranch(it) },
-                                onGitClone = { url, b -> viewModel.gitClone(url, b) },
-                                onGitPull = { viewModel.gitPull() },
-                                onGitPush = { msg -> viewModel.gitPush(msg) }
-                            )
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(max = 520.dp)
+                                    .verticalScroll(rememberScrollState())
+                            ) {
+                                GitHubDiagnosticPanel(
+                                    activeProjectName = activeProject?.title ?: "Offline-AI-Mobile-IDE",
+                                    projectFilesMap = filesMap,
+                                    onClose = { showGitHubDiagnosticDialog = false },
+                                    branches = branches,
+                                    currentBranchName = currentBranch,
+                                    onCreateBranch = { name, base -> viewModel.createBranch(name, base) },
+                                    onSwitchBranch = { viewModel.switchBranch(it) },
+                                    onDeleteBranch = { viewModel.deleteBranch(it) },
+                                    onGitClone = { url, b -> viewModel.gitClone(url, b) },
+                                    onGitPull = { viewModel.gitPull() },
+                                    onGitPush = { msg -> viewModel.gitPush(msg) }
+                                )
+                            }
                         }
                     )
                 }
